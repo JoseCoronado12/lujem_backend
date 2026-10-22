@@ -2,6 +2,13 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule, TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { UserModule } from './user/user.module';
+import { AuthModule } from './auth/auth.module';
+import { ProductModule } from './product/product.module';
+import { SupplierModule } from './supplier/supplier.module';
+import { PurchaseOrderModule } from './purchase-order/purchase-order.module';
+import { CustomerModule } from './customer/customer.module';
+import { SaleModule } from './sale/sale.module';
+import { PaymentModule } from './payment/payment.module';
 
 
 @Module({
@@ -27,11 +34,22 @@ import { UserModule } from './user/user.module';
         database: configService.getOrThrow<string>('DB_DATABASE'),
         // Carga automáticamente las entidades registradas con forFeature()
         autoLoadEntities: true,
-        synchronize: true, // ⚠️ Solo en desarrollo
+        synchronize: false,
+        migrationsRun: false,
+        migrations: [__dirname + '/database/migrations/*{.ts,.js}'],
+        migrationsTableName: 'typeorm_migrations',
       }),
     }),
 
     UserModule,
+
+    AuthModule,
+    ProductModule,
+    SupplierModule,
+    PurchaseOrderModule,
+    CustomerModule,
+    SaleModule,
+    PaymentModule,
 
     // Módulos de la aplicación
 

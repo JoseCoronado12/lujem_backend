@@ -44,6 +44,98 @@ $ npm run start:dev
 $ npm run start:prod
 ```
 
+## Autenticación JWT
+
+Configura `JWT_SECRET` en el entorno o en `.env` con un valor aleatorio largo antes
+de iniciar la aplicación. Los tokens emitidos expiran en una hora.
+
+- `POST /auth/register`: registra un usuario con `email`, `password` y `fullName`.
+- `POST /auth/login`: recibe `email` y `password`; devuelve `user` y `token`.
+- `GET /auth/me`: devuelve el perfil autenticado.
+- Las rutas `/users` requieren `Authorization: Bearer <token>`.
+
+Ejemplo de autenticación de una ruta protegida:
+
+```http
+Authorization: Bearer eyJ...
+```
+
+## Migraciones de base de datos
+
+El backend no sincroniza automáticamente el esquema. Ejecuta
+`npm run migration:run` para aplicar migraciones pendientes y consulta el estado
+con `npm run migration:show`.
+
+La migración inicial crea `users` en una base de datos nueva. Si `users` ya existe,
+solo registra el baseline cuando verifica que las columnas, clave primaria e
+índice único de correo coinciden con el esquema inicial; no altera la tabla.
+Si el esquema difiere, se detiene para que se revise antes de migrar.
+
+La migración de roles crea `USER` y `ADMIN`, separa nombres y apellidos y asocia
+cada usuario a un rol. Por seguridad, se detiene si ya existen usuarios: sus
+nombres requieren un mapeo confirmado antes de transformarlos. El registro asigna
+`USER` automáticamente; las rutas `/users` son exclusivas de `ADMIN`. La PK
+numérica se conserva temporalmente; la conversión a identificación queda pendiente.
+Para provisionar el primer administrador, registra su cuenta y asígnale el rol
+desde una sesión administrativa de MySQL:
+
+```sql
+UPDATE users
+SET id_rol = (SELECT id_rol FROM roles WHERE nombre = 'ADMIN')
+WHERE email = 'correo-del-administrador';
+```
+
+## Inventario y proveedores
+
+`POST`, `GET`, `GET /:id`, `PATCH /:id` y `DELETE /:id` están disponibles en
+`/products` y `/suppliers`; todas estas rutas requieren JWT de un administrador.
+Los campos del modelo se validan como obligatorios, salvo valores de inventario
+que tienen valor inicial cero. El precio debe ser positivo con hasta dos
+decimales y el stock no puede ser negativo. Los productos se identifican por
+código de barras y los proveedores por código autogenerado con NIT único.
+
+## Órdenes de compra
+
+Las rutas `/purchase-orders` requieren rol `ADMIN`. `POST` crea una orden
+`BORRADOR` con uno o más detalles; el backend calcula subtotales y total a partir
+de cantidad y costo unitario. `PATCH /purchase-orders/:id` permite editar detalles
+solo durante `BORRADOR` y cambiar el estado según el flujo:
+`BORRADOR` → `ENVIADA` → `RECIBIDA`, con cancelación permitida antes de recibir.
+El inventario se incrementa únicamente al recibir, en una transacción que bloquea
+los productos y evita aplicar dos veces la misma recepción. La FK de usuario usa
+temporalmente el ID numérico actual, hasta que se defina la migración de
+identificación del modelo ER.
+
+## Clientes y ventas
+
+Las rutas `/customers` y `/sales` requieren JWT con rol `ADMIN` durante esta
+etapa. Los clientes admiten los tipos de documento `CC`, `CE`, `TI`, `PASAPORTE`,
+`NIT` y `OTRO`; la contraseña es opcional para clientes presenciales. Las ventas
+se crean en `PENDIENTE_PAGO`, usan el precio vigente del producto como snapshot
+en cada detalle y calculan subtotal y total en el servidor. El descuento es un
+monto fijo que no puede superar el subtotal. Las existencias se validan y
+descuentan transaccionalmente cuando los pagos aprobados cubren el total.
+
+## Pagos y comprobantes
+
+Las rutas `/payments` requieren JWT de `ADMIN`. La migración crea `EFECTIVO` y
+`TRANSFERENCIA` como métodos iniciales. Los pagos parciales están permitidos;
+efectivo se aprueba al registrarlo y transferencia necesita comprobante antes de
+pasar a revisión. Solo un administrador aprueba/rechaza transferencias; el
+rechazo requiere motivo y conserva el archivo. El inventario se descuenta al
+alcanzar el total de la venta con pagos aprobados, en la misma transacción.
+
+Configura localmente, sin subir los valores al repositorio:
+`CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_UPLOAD_PRESET`,
+`CLOUDINARY_API_KEY` y `CLOUDINARY_API_SECRET`. El preset debe ser unsigned y
+estar configurado para la carpeta `lujem`. Los comprobantes se guardan como
+recursos públicos; cualquier persona con la URL puede acceder a ellos y los
+enlaces no expiran. El endpoint
+`GET /payments/:id/receipts/:receiptId/url` devuelve la URL pública y
+`expiresInSeconds: null`. Se aceptan JPEG, PNG, WEBP y PDF de hasta 5 MB; el
+servidor valida también la firma binaria del archivo y guarda su hash SHA-256.
+Los archivos se conservan al rechazar un pago para mantener el historial.
+
 ## Run tests
 
 ```bash
