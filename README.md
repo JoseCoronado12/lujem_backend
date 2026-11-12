@@ -108,13 +108,33 @@ identificación del modelo ER.
 
 ## Clientes y ventas
 
-Las rutas `/customers` y `/sales` requieren JWT con rol `ADMIN` durante esta
-etapa. Los clientes admiten los tipos de documento `CC`, `CE`, `TI`, `PASAPORTE`,
-`NIT` y `OTRO`; la contraseña es opcional para clientes presenciales. Las ventas
-se crean en `PENDIENTE_PAGO`, usan el precio vigente del producto como snapshot
-en cada detalle y calculan subtotal y total en el servidor. El descuento es un
-monto fijo que no puede superar el subtotal. Las existencias se validan y
-descuentan transaccionalmente cuando los pagos aprobados cubren el total.
+La administración de `/customers` y `/sales` requiere JWT con rol `ADMIN`. Los
+clientes admiten los tipos de documento `CC`, `CE`, `TI`, `PASAPORTE`, `NIT` y
+`OTRO`; la contraseña es opcional para clientes presenciales.
+
+El flujo en línea de clientes usa JWT independiente:
+
+- `POST /customer-auth/register` crea una cuenta de cliente con contraseña
+  obligatoria de al menos 8 caracteres; `POST /customer-auth/login` inicia
+  sesión y `GET /customer-auth/me` devuelve el perfil autenticado.
+- `GET /customer/products` y `GET /customer/products/:codigoBarras` muestran el
+  catálogo a clientes autenticados.
+- `POST /customer/sales` crea una venta `EN_LINEA` para el cliente autenticado.
+  `GET /customer/sales` y `GET /customer/sales/:id` solo muestran sus propias
+  ventas; `GET /customer/sales/:id/invoice` permite consultar su factura.
+- Un cliente puede consultar `GET /customer/payments/methods` y
+  `GET /customer/payments/bank-accounts`, iniciar una transferencia en
+  `POST /customer/payments/sales/:saleId`, consultar sus pagos y cargar o
+  consultar comprobantes dentro de su propia venta. Efectivo y aprobación o
+  rechazo de transferencias siguen siendo operaciones del establecimiento.
+
+Las ventas usan el precio vigente del producto como snapshot en cada detalle y
+calculan subtotal y total en el servidor. El descuento es un monto fijo que no
+puede superar el subtotal. Las existencias se validan y descuentan
+transaccionalmente cuando los pagos aprobados cubren el total. Como el modelo no
+define cómo validar fórmulas médicas, el autoservicio en línea rechaza productos
+marcados `requiere_formula`; la venta presencial sigue disponible para ellos.
+Los tokens de cliente no son válidos en rutas de administración.
 
 ## Pagos y comprobantes
 
@@ -135,6 +155,29 @@ enlaces no expiran. El endpoint
 `expiresInSeconds: null`. Se aceptan JPEG, PNG, WEBP y PDF de hasta 5 MB; el
 servidor valida también la firma binaria del archivo y guarda su hash SHA-256.
 Los archivos se conservan al rechazar un pago para mantener el historial.
+Los pagos iniciados por clientes en línea no tienen usuario del establecimiento
+asociado; la migración `1761167000000-AllowCustomerInitiatedPayments` permite
+ese caso sin cambiar los pagos existentes. Ejecuta las migraciones pendientes
+con `npm run migration:run` antes de usar este flujo.
+
+## Facturación y recordatorios de productos
+
+Cuando los pagos aprobados cubren el total, la venta y su factura se guardan en
+la misma transacción que el descuento del inventario. La factura es única por
+venta y su detalle se consulta desde los detalles de venta asociados. Las rutas
+`/invoices` permiten listar facturas y consultarlas por ID (`GET /invoices/:id`)
+o por venta (`GET /invoices/sales/:saleId`); no se permite emitirlas manualmente
+ni antes de que la venta esté pagada. La tasa de impuestos no está definida en
+el modelo, por lo que `impuestos` se registra en cero y el total coincide con
+el total pagado de la venta. La nueva migración también genera facturas para las
+ventas históricas `PAGADA` o `ENTREGADA`.
+
+Las rutas `/product-reminders` permiten crear, consultar, actualizar y eliminar
+recordatorios vinculados a un cliente y un producto. `GET /product-reminders/due`
+lista los recordatorios activos cuya fecha es hoy o anterior, para que el
+consumidor de la API pueda procesarlos. El modelo no define un canal de envío,
+por lo que estos endpoints no envían correos ni mensajes automáticamente.
+Ambos grupos de rutas requieren JWT con rol `ADMIN`.
 
 ## Run tests
 

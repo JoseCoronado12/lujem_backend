@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SaleModule } from '../sale/sale.module';
 import { Sale } from '../sale/entities/sale.entity';
+import { CustomerModule } from '../customer/customer.module';
 import { User } from '../user/entities/user.entity';
 import { BankAccount } from './entities/bank-account.entity';
 import { PaymentMethod } from './entities/payment-method.entity';
@@ -10,12 +11,14 @@ import { PaymentValidation } from './entities/payment-validation.entity';
 import { TransferReceipt } from './entities/transfer-receipt.entity';
 import { CloudinaryStorageService } from './cloudinary-storage.service';
 import { PaymentController } from './payment.controller';
+import { CustomerPaymentController } from './customer-payment.controller';
 import { PaymentService } from './payment.service';
 import { RolesGuard } from '../user/guards/roles.guard';
 
 @Module({
   imports: [
     SaleModule,
+    CustomerModule,
     TypeOrmModule.forFeature([
       BankAccount,
       PaymentMethod,
@@ -26,7 +29,7 @@ import { RolesGuard } from '../user/guards/roles.guard';
       User,
     ]),
   ],
-  controllers: [PaymentController],
+  controllers: [PaymentController, CustomerPaymentController],
   providers: [PaymentService, CloudinaryStorageService, RolesGuard],
   exports: [PaymentService],
 })

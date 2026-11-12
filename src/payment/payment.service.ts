@@ -24,6 +24,7 @@ import { TransferReceipt } from './entities/transfer-receipt.entity';
 import { CloudinaryStorageService } from './cloudinary-storage.service';
 import { CreateBankAccountDto } from './dto/create-payment-method-account.dto';
 import { CreatePaymentDto } from './dto/create-payment.dto';
+import { CreateOnlinePaymentDto } from './dto/create-online-payment.dto';
 import { TransferReceiptDto } from './dto/transfer-receipt.dto';
 import { ValidatePaymentDto } from './dto/validate-payment.dto';
 
@@ -82,7 +83,8 @@ export class PaymentService {
 
   async createPayment(
     dto: CreatePaymentDto,
-    userId: number,
+    userId: number | null,
+    customerId?: string,
   ): Promise<Payment> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -91,9 +93,17 @@ export class PaymentService {
     try {
       const sale = await queryRunner.manager.findOne(Sale, {
         where: { id: dto.idVenta },
+        relations: { cliente: true },
         lock: { mode: 'pessimistic_write' },
       });
       if (!sale) {
+        throw new NotFoundException(`Venta ${dto.idVenta} no encontrada`);
+      }
+      if (
+        customerId &&
+        (sale.cliente.identificacion !== customerId ||
+          sale.canal !== 'EN_LINEA')
+      ) {
         throw new NotFoundException(`Venta ${dto.idVenta} no encontrada`);
       }
       if (
@@ -115,9 +125,19 @@ export class PaymentService {
         );
       }
 
-      const user = await queryRunner.manager.findOneBy(User, { id: userId });
+      const user =
+        userId === null
+          ? null
+          : await queryRunner.manager.findOneBy(User, { id: userId });
       if (!user) {
-        throw new NotFoundException(`Usuario ${userId} no encontrado`);
+        if (userId !== null) {
+          throw new NotFoundException(`Usuario ${userId} no encontrado`);
+        }
+        if (!customerId) {
+          throw new BadRequestException(
+            'El pago requiere un usuario o un cliente autenticado',
+          );
+        }
       }
 
       const approvedCents = await this.getApprovedTotalCents(
@@ -144,11 +164,17 @@ export class PaymentService {
       }
 
       if (isCash) {
+        if (!user) {
+          throw new BadRequestException(
+            'Solo un usuario del establecimiento puede registrar pagos en efectivo',
+          );
+        }
         if (dto.idCuentaDestino !== undefined) {
           throw new BadRequestException(
             'El efectivo no debe especificar una cuenta bancaria',
           );
         }
+
         if (
           dto.montoRecibido === undefined ||
           cents(dto.montoRecibido) < cents(dto.monto)
@@ -215,10 +241,37 @@ export class PaymentService {
     }
   }
 
+  async createCustomerTransfer(
+    saleId: number,
+    dto: CreateOnlinePaymentDto,
+    customerId: string,
+  ): Promise<Payment> {
+    const method = await this.methodRepository.findOneBy({
+      id: dto.idMetodoPago,
+    });
+    if (!method) {
+      throw new NotFoundException(
+        `Método de pago ${dto.idMetodoPago} no encontrado`,
+      );
+    }
+    if (method.nombre !== 'TRANSFERENCIA') {
+      throw new BadRequestException(
+        'Los clientes en línea solo pueden registrar pagos por transferencia',
+      );
+    }
+
+    return await this.createPayment(
+      { ...dto, idVenta: saleId },
+      null,
+      customerId,
+    );
+  }
+
   async uploadReceipt(
     paymentId: number,
     file: Express.Multer.File,
     dto: TransferReceiptDto,
+    customerId?: string,
   ): Promise<{ id: number; nombreArchivo: string; tipoMime: string }> {
     if (!file?.buffer || file.size < 1 || file.size > MAX_FILE_BYTES) {
       throw new BadRequestException(
@@ -235,10 +288,17 @@ export class PaymentService {
       await queryRunner.startTransaction();
       const lockedPayment = await queryRunner.manager.findOne(Payment, {
         where: { id: paymentId },
-        relations: { venta: true, metodo: true },
+        relations: { venta: { cliente: true }, metodo: true },
         lock: { mode: 'pessimistic_write' },
       });
       if (!lockedPayment) {
+        throw new NotFoundException(`Pago ${paymentId} no encontrado`);
+      }
+      if (
+        customerId &&
+        (lockedPayment.venta.cliente.identificacion !== customerId ||
+          lockedPayment.venta.canal !== 'EN_LINEA')
+      ) {
         throw new NotFoundException(`Pago ${paymentId} no encontrado`);
       }
       if (
@@ -451,12 +511,22 @@ export class PaymentService {
   async getReceiptDownloadUrl(
     paymentId: number,
     receiptId: number,
+    customerId?: string,
   ): Promise<{ url: string; expiresInSeconds: null }> {
     const receipt = await this.receiptRepository.findOne({
       where: { id: receiptId, pago: { id: paymentId } },
-      relations: { pago: true },
+      relations: { pago: { venta: { cliente: true } } },
     });
     if (!receipt) {
+      throw new NotFoundException(
+        `Comprobante ${receiptId} no pertenece al pago ${paymentId}`,
+      );
+    }
+    if (
+      customerId &&
+      (receipt.pago.venta.cliente.identificacion !== customerId ||
+        receipt.pago.venta.canal !== 'EN_LINEA')
+    ) {
       throw new NotFoundException(
         `Comprobante ${receiptId} no pertenece al pago ${paymentId}`,
       );
@@ -484,7 +554,57 @@ export class PaymentService {
     if (!payment) {
       throw new NotFoundException(`Pago ${id} no encontrado`);
     }
+
     return payment;
+  }
+
+  async findForCustomer(
+    saleId: number,
+    paymentId: number,
+    customerId: string,
+  ): Promise<Payment> {
+    const payment = await this.paymentRepository.findOne({
+      where: {
+        id: paymentId,
+        venta: { id: saleId, cliente: { identificacion: customerId } },
+      },
+      relations: {
+        venta: true,
+        metodo: true,
+        cuentaDestino: true,
+        comprobantes: true,
+      },
+    });
+    if (!payment) {
+      throw new NotFoundException(`Pago ${paymentId} no encontrado`);
+    }
+    if (payment.venta.canal !== 'EN_LINEA') {
+      throw new NotFoundException(`Pago ${paymentId} no encontrado`);
+    }
+    return payment;
+  }
+
+  async findAllForCustomer(
+    saleId: number,
+    customerId: string,
+  ): Promise<Payment[]> {
+    const sale = await this.dataSource.getRepository(Sale).findOne({
+      where: { id: saleId, cliente: { identificacion: customerId } },
+    });
+    if (!sale || sale.canal !== 'EN_LINEA') {
+      throw new NotFoundException(`Venta ${saleId} no encontrada`);
+    }
+
+    return await this.paymentRepository.find({
+      where: { venta: { id: saleId } },
+      relations: {
+        venta: true,
+        metodo: true,
+        cuentaDestino: true,
+        comprobantes: true,
+      },
+      order: { fechaRegistro: 'ASC', id: 'ASC' },
+    });
   }
 
   private async getApprovedTotalCents(

@@ -6,9 +6,11 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { Customer } from '../customer/entities/customer.entity';
+import { Invoice } from '../invoice/entities/invoice.entity';
 import { Product } from '../product/entities/product.entity';
 import { User } from '../user/entities/user.entity';
 import { CreateSaleDto } from './dto/create-sale.dto';
+import { CreateOnlineSaleDto } from './dto/create-online-sale.dto';
 import { SaleDetail } from './entities/sale-detail.entity';
 import { Sale } from './entities/sale.entity';
 import { SaleChannel } from './entities/sale-channel.enum';
@@ -33,7 +35,11 @@ export class SaleService {
     private readonly dataSource: DataSource,
   ) {}
 
-  async create(createDto: CreateSaleDto, userId: number): Promise<Sale> {
+  async create(
+    createDto: CreateSaleDto,
+    userId: number | null,
+    isCustomerOrder = false,
+  ): Promise<Sale> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -49,7 +55,7 @@ export class SaleService {
       }
 
       const user =
-        createDto.canal === SaleChannel.PRESENCIAL
+        createDto.canal === SaleChannel.PRESENCIAL && userId !== null
           ? await queryRunner.manager.findOneBy(User, { id: userId })
           : null;
       if (createDto.canal === SaleChannel.PRESENCIAL && !user) {
@@ -66,6 +72,11 @@ export class SaleService {
         if (!product) {
           throw new NotFoundException(
             `Producto ${detailDto.codigoBarras} no encontrado`,
+          );
+        }
+        if (isCustomerOrder && product.requiereFormula) {
+          throw new BadRequestException(
+            `El producto ${product.codigoBarras} requiere una fórmula médica y no se puede comprar en línea`,
           );
         }
 
@@ -121,6 +132,21 @@ export class SaleService {
     }
   }
 
+  async createForCustomer(
+    createDto: CreateOnlineSaleDto,
+    customerId: string,
+  ): Promise<Sale> {
+    return await this.create(
+      {
+        identificacionCliente: customerId,
+        canal: SaleChannel.EN_LINEA,
+        detalles: createDto.detalles,
+      },
+      null,
+      true,
+    );
+  }
+
   async findAll(): Promise<Sale[]> {
     return await this.saleRepository.find({
       relations: {
@@ -144,7 +170,52 @@ export class SaleService {
     if (!sale) {
       throw new NotFoundException(`Venta ${id} no encontrada`);
     }
+
     return sale;
+  }
+
+  async findAllForCustomer(customerId: string): Promise<Sale[]> {
+    return await this.saleRepository.find({
+      where: { cliente: { identificacion: customerId } },
+      relations: {
+        cliente: true,
+        detalles: { producto: true },
+      },
+      order: { fechaHora: 'DESC', id: 'DESC' },
+    });
+  }
+
+  async findOneForCustomer(id: number, customerId: string): Promise<Sale> {
+    const sale = await this.saleRepository.findOne({
+      where: { id, cliente: { identificacion: customerId } },
+      relations: {
+        cliente: true,
+        detalles: { producto: true },
+      },
+    });
+    if (!sale) {
+      throw new NotFoundException(`Venta ${id} no encontrada`);
+    }
+    return sale;
+  }
+
+  async findInvoiceForCustomer(id: number, customerId: string): Promise<Invoice> {
+    const sale = await this.findOneForCustomer(id, customerId);
+    const invoice = await this.saleRepository.manager.findOne(Invoice, {
+      where: { venta: { id: sale.id } },
+      relations: {
+        venta: {
+          cliente: true,
+          detalles: { producto: true },
+        },
+      },
+    });
+    if (!invoice) {
+      throw new NotFoundException(
+        `No hay una factura emitida para la venta ${id}`,
+      );
+    }
+    return invoice;
   }
 
   async markPaid(id: number): Promise<Sale> {
@@ -219,5 +290,21 @@ export class SaleService {
 
     sale.estado = SaleStatus.PAGADA;
     await manager.save(sale);
+
+    const existingInvoice = await manager.findOne(Invoice, {
+      where: { venta: { id: sale.id } },
+    });
+    if (!existingInvoice) {
+      await manager.save(
+        manager.create(Invoice, {
+          numeroFactura: `FAC-${sale.id.toString().padStart(8, '0')}`,
+          venta: sale,
+          subtotal: sale.subtotal,
+          descuento: sale.descuento,
+          impuestos: 0,
+          total: sale.total,
+        }),
+      );
+    }
   }
 }

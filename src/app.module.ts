@@ -9,6 +9,8 @@ import { PurchaseOrderModule } from './purchase-order/purchase-order.module';
 import { CustomerModule } from './customer/customer.module';
 import { SaleModule } from './sale/sale.module';
 import { PaymentModule } from './payment/payment.module';
+import { InvoiceModule } from './invoice/invoice.module';
+import { ProductReminderModule } from './product-reminder/product-reminder.module';
 
 
 @Module({
@@ -50,6 +52,8 @@ import { PaymentModule } from './payment/payment.module';
     CustomerModule,
     SaleModule,
     PaymentModule,
+    InvoiceModule,
+    ProductReminderModule,
 
     // Módulos de la aplicación
 

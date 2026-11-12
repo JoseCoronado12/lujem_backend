@@ -96,12 +96,12 @@ export class Payment {
   estado: PaymentStatus;
 
   @ManyToOne(() => User, {
-    nullable: false,
+    nullable: true,
     onDelete: 'RESTRICT',
     onUpdate: 'CASCADE',
   })
   @JoinColumn({ name: 'id_usuario', foreignKeyConstraintName: 'FK_pagos_usuario' })
-  usuario: User;
+  usuario: User | null;
 
   @Column({
     name: 'fecha_registro',

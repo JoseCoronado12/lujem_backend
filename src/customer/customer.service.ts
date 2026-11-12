@@ -59,7 +59,24 @@ export class CustomerService {
         `Cliente ${identificacion} no encontrado`,
       );
     }
+
     return customer;
+  }
+
+  async findForAuthentication(correo: string): Promise<Customer | null> {
+    return await this.customerRepository.findOne({
+      where: { correo },
+      select: {
+        identificacion: true,
+        tipoDocumento: true,
+        nombres: true,
+        apellidos: true,
+        correo: true,
+        telefono: true,
+        direccion: true,
+        contrasenaHash: true,
+      },
+    });
   }
 
   async update(

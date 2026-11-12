@@ -73,6 +73,10 @@ export class AuthService {
       throw new UnauthorizedException('Token inválido o expirado');
     }
 
+    if (payload.kind === 'customer') {
+      throw new UnauthorizedException('Token inválido');
+    }
+
     const user: User | null = await this.userService.findById(payload.sub);
 
     if (!user || !user.isActive) {
@@ -90,6 +94,7 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       role: user.role.nombre,
+      kind: 'staff',
     };
 
     // Firmar y retornar el token

@@ -7,6 +7,7 @@ import {
   OneToMany,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+import type { Relation } from 'typeorm';
 import { Customer } from '../../customer/entities/customer.entity';
 import { User } from '../../user/entities/user.entity';
 import { SaleChannel } from './sale-channel.enum';
@@ -34,7 +35,7 @@ export class Sale {
     name: 'identificacion_cliente',
     foreignKeyConstraintName: 'FK_ventas_cliente',
   })
-  cliente: Customer;
+  cliente: Relation<Customer>;
 
   @ManyToOne(() => User, {
     nullable: true,
@@ -45,7 +46,7 @@ export class Sale {
     name: 'id_usuario',
     foreignKeyConstraintName: 'FK_ventas_usuario',
   })
-  usuario: User | null;
+  usuario: Relation<User> | null;
 
   @Column({ type: 'enum', enum: SaleChannel })
   canal: SaleChannel;
@@ -92,5 +93,5 @@ export class Sale {
   @OneToMany(() => SaleDetail, (detail) => detail.venta, {
     cascade: ['insert'],
   })
-  detalles: SaleDetail[];
+  detalles: Relation<SaleDetail[]>;
 }

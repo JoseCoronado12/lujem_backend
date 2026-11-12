@@ -6,6 +6,7 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+import type { Relation } from 'typeorm';
 import { Product } from '../../product/entities/product.entity';
 import { Sale } from './sale.entity';
 
@@ -30,7 +31,7 @@ export class SaleDetail {
     name: 'id_venta',
     foreignKeyConstraintName: 'FK_detalles_venta_venta',
   })
-  venta: Sale;
+  venta: Relation<Sale>;
 
   @ManyToOne(() => Product, {
     nullable: false,
@@ -41,7 +42,7 @@ export class SaleDetail {
     name: 'codigo_barras',
     foreignKeyConstraintName: 'FK_detalles_venta_producto',
   })
-  producto: Product;
+  producto: Relation<Product>;
 
   @Column({ type: 'int' })
   cantidad: number;

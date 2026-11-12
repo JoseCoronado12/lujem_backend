@@ -29,6 +29,9 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
    * Lo que retorna se asigna a request.user
    */
   async validate(payload: JwtPayload): Promise<User> {
+    if (payload.kind === 'customer') {
+      throw new UnauthorizedException('Token inválido');
+    }
     const user: User | null = await this.userService.findById(payload.sub);
 
     // El token es válido pero el usuario fue eliminado
