@@ -15,6 +15,10 @@ import { SaleDetail } from './entities/sale-detail.entity';
 import { Sale } from './entities/sale.entity';
 import { SaleChannel } from './entities/sale-channel.enum';
 import { SaleStatus } from './entities/sale-status.enum';
+import { DeliverSaleDto, ReturnSaleDto, VoidSaleDto } from './dto/sale-state.dto';
+import { ProductLot } from '../product/entities/product-lot.entity';
+import { Prescription } from './entities/prescription.entity';
+import { PrescriptionDto } from './dto/prescription.dto';
 
 const MAX_DECIMAL_CENTS = 9_999_999_999;
 const MAX_INT = 2_147_483_647;
@@ -66,8 +70,9 @@ export class SaleService {
       let subtotalCents = 0;
 
       for (const detailDto of createDto.detalles) {
-        const product = await queryRunner.manager.findOneBy(Product, {
-          codigoBarras: detailDto.codigoBarras,
+        const product = await queryRunner.manager.findOne(Product, {
+          where: { codigoBarras: detailDto.codigoBarras },
+          lock: isCustomerOrder ? { mode: 'pessimistic_write' } : undefined,
         });
         if (!product) {
           throw new NotFoundException(
@@ -78,6 +83,27 @@ export class SaleService {
           throw new BadRequestException(
             `El producto ${product.codigoBarras} requiere una fórmula médica y no se puede comprar en línea`,
           );
+        }
+        if (
+          !isCustomerOrder &&
+          product.requiereFormula &&
+          (!createDto.prescripcionNumero ||
+            !createDto.prescripcionMedico ||
+            !createDto.prescripcionFecha)
+        ) {
+          throw new BadRequestException(
+            `El producto ${product.codigoBarras} requiere datos de prescripción`,
+          );
+        }
+        if (isCustomerOrder) {
+          const available = product.stock - (product.stockReservado ?? 0);
+          if (available < detailDto.cantidad) {
+            throw new BadRequestException(
+              `Stock insuficiente disponible para ${product.codigoBarras}`,
+            );
+          }
+          product.stockReservado = (product.stockReservado ?? 0) + detailDto.cantidad;
+          await queryRunner.manager.save(product);
         }
 
         const lineCents = toCents(product.valorUnitario) * detailDto.cantidad;
@@ -110,16 +136,36 @@ export class SaleService {
 
       const sale = queryRunner.manager.create(Sale, {
         cliente: customer,
-        usuario: user,
+        usuario: user as User,
         canal: createDto.canal,
         subtotal: fromCents(subtotalCents),
         descuento: fromCents(discountCents),
         total: fromCents(subtotalCents - discountCents),
         estado: SaleStatus.PENDIENTE_PAGO,
+        fechaReserva: isCustomerOrder
+          ? new Date(Date.now() + 30 * 60 * 1000)
+          : null,
+        prescripcionNumero: createDto.prescripcionNumero ?? null,
+        prescripcionMedico: createDto.prescripcionMedico ?? null,
+        prescripcionFecha: createDto.prescripcionFecha ?? null,
         detalles: details,
       });
 
       const savedSale = await queryRunner.manager.save(sale);
+      if (createDto.formula) {
+        await queryRunner.manager.save(
+          queryRunner.manager.create(Prescription, {
+            venta: savedSale,
+            cliente: customer,
+            usuario: user as User,
+            numeroFormula: createDto.formula.numeroFormula,
+            nombreMedico: createDto.formula.nombreMedico,
+            fechaFormula: createDto.formula.fechaFormula,
+            tipoControl: createDto.formula.tipoControl,
+            archivoUrl: createDto.formula.archivoUrl ?? null,
+          }),
+        );
+      }
       await queryRunner.commitTransaction();
       return await this.findOne(savedSale.id);
     } catch (error) {
@@ -218,6 +264,164 @@ export class SaleService {
     return invoice;
   }
 
+  async deliver(id: number, _dto: DeliverSaleDto): Promise<Sale> {
+    const sale = await this.findOne(id);
+    if (sale.estado !== SaleStatus.PAGADA) {
+      throw new BadRequestException(
+        `Solo se puede entregar una venta PAGADA`,
+      );
+    }
+    sale.estado = SaleStatus.ENTREGADA;
+    sale.fechaEntrega = new Date();
+    await this.saleRepository.save(sale);
+    return await this.findOne(id);
+  }
+
+  async voidSale(id: number, dto: VoidSaleDto): Promise<Sale> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      const sale = await queryRunner.manager.findOne(Sale, {
+        where: { id },
+        relations: { detalles: { producto: true } },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!sale) throw new NotFoundException(`Venta ${id} no encontrada`);
+      if (sale.estado === SaleStatus.ANULADA) {
+        throw new BadRequestException('La venta ya está anulada');
+      }
+      if (
+        sale.estado !== SaleStatus.PENDIENTE_PAGO &&
+        sale.estado !== SaleStatus.PAGO_EN_REVISION &&
+        sale.estado !== SaleStatus.PAGADA &&
+        sale.estado !== SaleStatus.ENTREGADA
+      ) {
+        throw new BadRequestException(
+          `No se puede anular una venta ${sale.estado}`,
+        );
+      }
+
+      if (
+        sale.estado === SaleStatus.PAGADA ||
+        sale.estado === SaleStatus.ENTREGADA
+      ) {
+        for (const detail of sale.detalles) {
+          const product = await queryRunner.manager.findOne(Product, {
+            where: { codigoBarras: detail.producto.codigoBarras },
+            lock: { mode: 'pessimistic_write' },
+          });
+          if (!product) {
+            throw new NotFoundException(
+              `Producto ${detail.producto.codigoBarras} no encontrado`,
+            );
+          }
+          product.stock += detail.cantidad;
+          await queryRunner.manager.save(product);
+        }
+      } else if (sale.canal === SaleChannel.EN_LINEA) {
+        for (const detail of sale.detalles) {
+          const product = await queryRunner.manager.findOne(Product, {
+            where: { codigoBarras: detail.producto.codigoBarras },
+            lock: { mode: 'pessimistic_write' },
+          });
+          if (product) {
+            product.stockReservado = Math.max(
+              0,
+              (product.stockReservado ?? 0) - detail.cantidad,
+            );
+            await queryRunner.manager.save(product);
+          }
+        }
+      }
+
+      sale.estado = SaleStatus.ANULADA;
+      sale.motivoAnulacion = dto.motivo;
+      await queryRunner.manager.save(sale);
+      await queryRunner.commitTransaction();
+      return await this.findOne(id);
+    } catch (error) {
+      if (queryRunner.isTransactionActive) await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  async returnSale(id: number, dto: ReturnSaleDto): Promise<Sale> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      const sale = await queryRunner.manager.findOne(Sale, {
+        where: { id },
+        relations: { detalles: { producto: true } },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!sale) throw new NotFoundException(`Venta ${id} no encontrada`);
+      if (
+        sale.estado !== SaleStatus.PAGADA &&
+        sale.estado !== SaleStatus.ENTREGADA
+      ) {
+        throw new BadRequestException(
+          'Solo se puede devolver una venta PAGADA o ENTREGADA',
+        );
+      }
+
+      for (const detail of sale.detalles) {
+        const product = await queryRunner.manager.findOne(Product, {
+          where: { codigoBarras: detail.producto.codigoBarras },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!product) {
+          throw new NotFoundException(
+            `Producto ${detail.producto.codigoBarras} no encontrado`,
+          );
+        }
+        product.stock += detail.cantidad;
+        await queryRunner.manager.save(product);
+      }
+
+      sale.estado = SaleStatus.ANULADA;
+      sale.fechaDevolucion = new Date();
+      sale.motivoDevolucion = dto.motivo;
+      await queryRunner.manager.save(sale);
+      await queryRunner.commitTransaction();
+      return await this.findOne(id);
+    } catch (error) {
+      if (queryRunner.isTransactionActive) await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  async registerPrescription(
+    saleId: number,
+    dto: PrescriptionDto,
+    userId: number,
+  ): Promise<Prescription> {
+    const sale = await this.saleRepository.findOne({
+      where: { id: saleId },
+      relations: { cliente: true },
+    });
+    if (!sale) throw new NotFoundException(`Venta ${saleId} no encontrada`);
+    const user = await this.saleRepository.manager.findOneBy(User, { id: userId });
+    if (!user) throw new NotFoundException(`Usuario ${userId} no encontrado`);
+    return await this.saleRepository.manager.save(
+      this.saleRepository.manager.create(Prescription, {
+        venta: sale,
+        cliente: sale.cliente,
+        usuario: user,
+        numeroFormula: dto.numeroFormula,
+        nombreMedico: dto.nombreMedico,
+        fechaFormula: dto.fechaFormula,
+        tipoControl: dto.tipoControl,
+        archivoUrl: dto.archivoUrl ?? null,
+      }),
+    );
+  }
+
   async markPaid(id: number): Promise<Sale> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -257,6 +461,15 @@ export class SaleService {
     manager: EntityManager,
     sale: Sale,
   ): Promise<void> {
+    if (
+      sale.canal === SaleChannel.EN_LINEA &&
+      sale.fechaReserva &&
+      sale.fechaReserva.getTime() < Date.now()
+    ) {
+      throw new BadRequestException(
+        'La reserva de stock de la venta en línea expiró',
+      );
+    }
     const details = await manager.find(SaleDetail, {
       where: { venta: { id: sale.id } },
       relations: { producto: true },
@@ -285,7 +498,40 @@ export class SaleService {
       }
 
       product.stock -= detail.cantidad;
+      if (sale.canal === SaleChannel.EN_LINEA) {
+        product.stockReservado = Math.max(
+          0,
+          (product.stockReservado ?? 0) - detail.cantidad,
+        );
+      }
       await manager.save(product);
+
+      let remaining = detail.cantidad;
+      const lots = await manager.find(ProductLot, {
+        where: {
+          producto: { codigoBarras: product.codigoBarras },
+          activo: true,
+        },
+        order: { fechaVencimiento: 'ASC', id: 'ASC' },
+      });
+      for (const lot of lots) {
+        if (remaining === 0) break;
+        if (lot.fechaVencimiento <= new Date().toISOString().slice(0, 10)) {
+          throw new BadRequestException(
+            `El producto ${product.codigoBarras} tiene lotes vencidos disponibles`,
+          );
+        }
+        const toConsume = Math.min(remaining, lot.cantidad);
+        lot.cantidad -= toConsume;
+        remaining -= toConsume;
+        lot.activo = lot.cantidad > 0;
+        await manager.save(lot);
+      }
+      if (remaining > 0) {
+        throw new BadRequestException(
+          `No hay lotes suficientes para ${product.codigoBarras}`,
+        );
+      }
     }
 
     sale.estado = SaleStatus.PAGADA;
@@ -295,14 +541,22 @@ export class SaleService {
       where: { venta: { id: sale.id } },
     });
     if (!existingInvoice) {
+      let taxesCents = 0;
+      for (const detail of details) {
+        const taxableBaseCents = Number.isFinite(detail.subtotal)
+          ? toCents(detail.subtotal)
+          : 0;
+        const rate = Number(detail.producto.tasaImpuesto ?? 0);
+        taxesCents += Math.round((taxableBaseCents * rate) / 100);
+      }
       await manager.save(
         manager.create(Invoice, {
           numeroFactura: `FAC-${sale.id.toString().padStart(8, '0')}`,
           venta: sale,
           subtotal: sale.subtotal,
           descuento: sale.descuento,
-          impuestos: 0,
-          total: sale.total,
+          impuestos: fromCents(taxesCents),
+          total: fromCents(toCents(sale.total) + taxesCents),
         }),
       );
     }

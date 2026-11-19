@@ -14,6 +14,17 @@ import {
 import { PurchaseOrderStatus } from '../purchase-order-status.enum';
 import { PurchaseOrderDetailDto } from './purchase-order-detail.dto';
 
+export class ReceivePurchaseDetailDto {
+  @IsString()
+  @MaxLength(100)
+  codigoBarras: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(2147483647)
+  cantidad: number;
+}
+
 export class UpdatePurchaseOrderDto {
   @IsOptional()
   @IsInt()
@@ -36,4 +47,11 @@ export class UpdatePurchaseOrderDto {
   @IsOptional()
   @IsEnum(PurchaseOrderStatus)
   estado?: PurchaseOrderStatus;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => ReceivePurchaseDetailDto)
+  recepciones?: ReceivePurchaseDetailDto[];
 }

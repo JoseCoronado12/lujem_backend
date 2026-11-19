@@ -11,10 +11,21 @@ import { SaleModule } from './sale/sale.module';
 import { PaymentModule } from './payment/payment.module';
 import { InvoiceModule } from './invoice/invoice.module';
 import { ProductReminderModule } from './product-reminder/product-reminder.module';
+import { CashModule } from './cash/cash.module';
+import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
+import { TerminusModule } from '@nestjs/terminus';
+import { ReportsModule } from './reports/reports.module';
+import { HealthModule } from './health/health.module';
+import { AuditModule } from './audit/audit.module';
 
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
+    TerminusModule,
     // Configuración de variables de entorno
     // isGlobal: true hace que ConfigService esté disponible en toda la app
     ConfigModule.forRoot({
@@ -54,9 +65,19 @@ import { ProductReminderModule } from './product-reminder/product-reminder.modul
     PaymentModule,
     InvoiceModule,
     ProductReminderModule,
+    CashModule,
+    ReportsModule,
+    HealthModule,
+    AuditModule,
 
     // Módulos de la aplicación
 
+  ],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
   ],
 })
 export class AppModule {}

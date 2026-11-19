@@ -6,4 +6,5 @@ export interface CustomerAuthResponse {
     apellidos: string;
   };
   token: string;
+  refreshToken?: string;
 }

@@ -90,6 +90,30 @@ export class Sale {
   })
   estado: SaleStatus;
 
+  @Column({ name: 'fecha_reserva', type: 'datetime', nullable: true })
+  fechaReserva: Date | null;
+
+  @Column({ name: 'motivo_anulacion', type: 'varchar', length: 255, nullable: true })
+  motivoAnulacion: string | null;
+
+  @Column({ name: 'fecha_entrega', type: 'datetime', nullable: true })
+  fechaEntrega: Date | null;
+
+  @Column({ name: 'fecha_devolucion', type: 'datetime', nullable: true })
+  fechaDevolucion: Date | null;
+
+  @Column({ name: 'motivo_devolucion', type: 'varchar', length: 255, nullable: true })
+  motivoDevolucion: string | null;
+
+  @Column({ name: 'prescripcion_numero', type: 'varchar', length: 100, nullable: true })
+  prescripcionNumero: string | null;
+
+  @Column({ name: 'prescripcion_medico', type: 'varchar', length: 255, nullable: true })
+  prescripcionMedico: string | null;
+
+  @Column({ name: 'prescripcion_fecha', type: 'date', nullable: true })
+  prescripcionFecha: string | null;
+
   @OneToMany(() => SaleDetail, (detail) => detail.venta, {
     cascade: ['insert'],
   })

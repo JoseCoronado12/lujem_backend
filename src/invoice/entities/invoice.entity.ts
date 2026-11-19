@@ -74,4 +74,24 @@ export class Invoice {
     transformer: decimalTransformer,
   })
   total: number;
+
+  @Column({
+    name: 'estado_electronico',
+    type: 'enum',
+    enum: ['NO_ENVIADA', 'ENVIADA', 'ACEPTADA', 'RECHAZADA'],
+    default: 'NO_ENVIADA',
+  })
+  estadoElectronico: 'NO_ENVIADA' | 'ENVIADA' | 'ACEPTADA' | 'RECHAZADA';
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  cufe: string | null;
+
+  @Column({ name: 'xml_url', type: 'varchar', length: 500, nullable: true })
+  xmlUrl: string | null;
+
+  @Column({ name: 'respuesta_proveedor', type: 'text', nullable: true })
+  respuestaProveedor: string | null;
+
+  @Column({ name: 'fecha_electronica', type: 'datetime', nullable: true })
+  fechaElectronica: Date | null;
 }

@@ -9,9 +9,12 @@ import { Product } from '../product/entities/product.entity';
 import { CreateProductReminderDto } from './dto/create-product-reminder.dto';
 import { UpdateProductReminderDto } from './dto/update-product-reminder.dto';
 import { ProductReminder } from './entities/product-reminder.entity';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { Logger } from '@nestjs/common';
 
 @Injectable()
 export class ProductReminderService {
+  private readonly logger = new Logger(ProductReminderService.name);
   constructor(
     @InjectRepository(ProductReminder)
     private readonly reminderRepository: Repository<ProductReminder>,
@@ -59,6 +62,34 @@ export class ProductReminderService {
     });
   }
 
+  async findForCustomer(customerId: string): Promise<ProductReminder[]> {
+    return await this.reminderRepository.find({
+      where: { cliente: { identificacion: customerId } },
+      relations: { cliente: true, producto: true },
+      order: { fechaRecordatorio: 'ASC', id: 'ASC' },
+    });
+  }
+
+  async updateForCustomer(
+    id: number,
+    customerId: string,
+    dto: UpdateProductReminderDto,
+  ): Promise<ProductReminder> {
+    const reminder = await this.findOne(id);
+    if (reminder.cliente.identificacion !== customerId) {
+      throw new NotFoundException(`Recordatorio ${id} no encontrado`);
+    }
+    return await this.update(id, dto);
+  }
+
+  async removeForCustomer(id: number, customerId: string): Promise<void> {
+    const reminder = await this.findOne(id);
+    if (reminder.cliente.identificacion !== customerId) {
+      throw new NotFoundException(`Recordatorio ${id} no encontrado`);
+    }
+    await this.remove(id);
+  }
+
   async findDue(): Promise<ProductReminder[]> {
     return await this.reminderRepository
       .createQueryBuilder('recordatorio')
@@ -69,6 +100,40 @@ export class ProductReminderService {
       .orderBy('recordatorio.fechaRecordatorio', 'ASC')
       .addOrderBy('recordatorio.id', 'ASC')
       .getMany();
+  }
+
+  @Cron(CronExpression.EVERY_DAY_AT_8AM)
+  async processDueReminders(): Promise<void> {
+    const due = await this.findDue();
+    const webhook = process.env.NOTIFICATION_WEBHOOK_URL;
+    for (const reminder of due) {
+      const payload = {
+        customerId: reminder.cliente.identificacion,
+        customerEmail: reminder.cliente.correo,
+        product: reminder.producto.nombreProducto,
+        message: reminder.mensaje,
+        reminderId: reminder.id,
+      };
+      if (webhook) {
+        try {
+          await fetch(webhook, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+        } catch (error) {
+          this.logger.error(`No se pudo enviar recordatorio ${reminder.id}`, error);
+          continue;
+        }
+      } else {
+        this.logger.log(`Recordatorio pendiente ${JSON.stringify(payload)}`);
+      }
+
+      const next = new Date(`${reminder.fechaRecordatorio}T12:00:00`);
+      next.setDate(next.getDate() + reminder.frecuenciaDias);
+      reminder.fechaRecordatorio = next.toISOString().slice(0, 10);
+      await this.reminderRepository.save(reminder);
+    }
   }
 
   async findOne(id: number): Promise<ProductReminder> {

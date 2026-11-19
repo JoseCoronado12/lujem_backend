@@ -14,6 +14,7 @@ import {
 } from 'class-validator';
 import { SaleChannel } from '../entities/sale-channel.enum';
 import { CreateSaleDetailDto } from './create-sale-detail.dto';
+import { PrescriptionDto } from './prescription.dto';
 
 export class CreateSaleDto {
   @IsString()
@@ -35,4 +36,23 @@ export class CreateSaleDto {
   @ValidateNested({ each: true })
   @Type(() => CreateSaleDetailDto)
   detalles: CreateSaleDetailDto[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  prescripcionNumero?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  prescripcionMedico?: string;
+
+  @IsOptional()
+  @IsString()
+  prescripcionFecha?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PrescriptionDto)
+  formula?: PrescriptionDto;
 }

@@ -34,6 +34,9 @@ export class Customer {
   @Column({ type: 'varchar', length: 255 })
   direccion: string;
 
+  @Column({ type: 'boolean', default: true })
+  activo: boolean;
+
   @Exclude()
   @Column({
     name: 'contrasena_hash',
@@ -44,4 +47,18 @@ export class Customer {
     select: false,
   })
   contrasenaHash: string | null;
+
+  @Exclude()
+  @Column({ name: 'refresh_token_hash', type: 'varchar', length: 255, nullable: true, select: false })
+  refreshTokenHash: string | null;
+
+  @Exclude()
+  @Column({ name: 'reset_token_hash', type: 'varchar', length: 255, nullable: true, select: false })
+  resetTokenHash: string | null;
+
+  @Column({ name: 'reset_token_expires', type: 'datetime', nullable: true })
+  resetTokenExpires: Date | null;
+
+  @Column({ name: 'email_verificado', type: 'boolean', default: false })
+  emailVerificado: boolean;
 }

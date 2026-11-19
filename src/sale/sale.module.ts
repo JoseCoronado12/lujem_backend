@@ -11,6 +11,8 @@ import { Sale } from './entities/sale.entity';
 import { SaleController } from './sale.controller';
 import { CustomerSaleController } from './customer-sale.controller';
 import { SaleService } from './sale.service';
+import { ProductLot } from '../product/entities/product-lot.entity';
+import { Prescription } from './entities/prescription.entity';
 
 @Module({
   imports: [
@@ -22,6 +24,8 @@ import { SaleService } from './sale.service';
       Product,
       User,
       Invoice,
+      ProductLot,
+      Prescription,
     ]),
   ],
   controllers: [SaleController, CustomerSaleController],

@@ -10,6 +10,7 @@ import {
   Patch,
   Post,
   UseGuards,
+  Query,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Roles } from '../user/decorators/roles.decorator';
@@ -18,10 +19,11 @@ import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
 import { Supplier } from './entities/supplier.entity';
 import { SupplierService } from './supplier.service';
+import { PaginationDto } from '../common/dto/pagination.dto';
 
 @Controller('suppliers')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
-@Roles('ADMIN')
+@Roles('ADMIN', 'BODEGA')
 export class SupplierController {
   constructor(private readonly supplierService: SupplierService) {}
 
@@ -31,8 +33,12 @@ export class SupplierController {
   }
 
   @Get()
-  findAll(): Promise<Supplier[]> {
-    return this.supplierService.findAll();
+  findAll(@Query() query: PaginationDto) {
+    return this.supplierService.findPaginated(
+      query.page,
+      query.limit,
+      query.search,
+    );
   }
 
   @Get(':codigoProveedor')

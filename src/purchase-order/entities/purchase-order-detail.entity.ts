@@ -62,4 +62,13 @@ export class PurchaseOrderDetail {
     transformer: decimalTransformer,
   })
   subtotal: number;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  lote: string | null;
+
+  @Column({ name: 'fecha_vencimiento', type: 'date', nullable: true })
+  fechaVencimiento: string | null;
+
+  @Column({ name: 'cantidad_recibida', type: 'int', default: 0 })
+  cantidadRecibida: number;
 }

@@ -18,6 +18,11 @@ import type {
   AuthUser,
 } from './interfaces/auth-response.interface';
 import type { User } from '../user/entities/user.entity';
+import {
+  RefreshTokenDto,
+  RequestPasswordResetDto,
+  ResetPasswordDto,
+} from './dto/account-recovery.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -39,5 +44,20 @@ export class AuthController {
   getProfile(@Req() request: Request & { user: User }): AuthUser {
     const { id, email, nombres, apellidos, role } = request.user;
     return { id, email, nombres, apellidos, role: role.nombre };
+  }
+
+  @Post('password-reset/request')
+  requestPasswordReset(@Body() dto: RequestPasswordResetDto) {
+    return this.authService.requestPasswordReset(dto.email);
+  }
+
+  @Post('password-reset')
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto);
+  }
+
+  @Post('refresh')
+  refresh(@Body() dto: RefreshTokenDto) {
+    return this.authService.refresh(dto.refreshToken);
   }
 }

@@ -9,6 +9,7 @@ import {
   Patch,
   Post,
   UseGuards,
+  Query,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Roles } from '../user/decorators/roles.decorator';
@@ -17,10 +18,11 @@ import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { Customer } from './entities/customer.entity';
 import { CustomerService } from './customer.service';
+import { PaginationDto } from '../common/dto/pagination.dto';
 
 @Controller('customers')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
-@Roles('ADMIN')
+@Roles('ADMIN', 'CAJERO', 'REGENTE')
 export class CustomerController {
   constructor(private readonly customerService: CustomerService) {}
 
@@ -30,8 +32,12 @@ export class CustomerController {
   }
 
   @Get()
-  findAll(): Promise<Customer[]> {
-    return this.customerService.findAll();
+  findAll(@Query() query: PaginationDto) {
+    return this.customerService.findPaginated(
+      query.page,
+      query.limit,
+      query.search,
+    );
   }
 
   @Get(':identificacion')

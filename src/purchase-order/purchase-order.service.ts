@@ -14,6 +14,7 @@ import { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto';
 import { PurchaseOrderDetail } from './entities/purchase-order-detail.entity';
 import { PurchaseOrder } from './entities/purchase-order.entity';
 import { PurchaseOrderStatus } from './purchase-order-status.enum';
+import { ProductLot } from '../product/entities/product-lot.entity';
 
 const MAX_DECIMAL_CENTS = 9_999_999_999;
 const MAX_INT = 2_147_483_647;
@@ -127,7 +128,11 @@ export class PurchaseOrderService {
         throw new NotFoundException(`Orden de compra ${id} no encontrada`);
       }
 
-      const { estado: requestedStatus, ...changes } = updateDto;
+      const {
+        estado: requestedStatus,
+        recepciones,
+        ...changes
+      } = updateDto;
       if (
         (changes.detalles ||
           changes.observaciones !== undefined ||
@@ -172,13 +177,31 @@ export class PurchaseOrderService {
 
       if (requestedStatus && requestedStatus !== order.estado) {
         this.assertTransition(order.estado, requestedStatus);
-        if (requestedStatus === PurchaseOrderStatus.RECIBIDA) {
-          if (order.estado !== PurchaseOrderStatus.ENVIADA) {
+        if (
+          requestedStatus === PurchaseOrderStatus.RECIBIDA ||
+          requestedStatus === PurchaseOrderStatus.PARCIAL
+        ) {
+          if (
+            order.estado !== PurchaseOrderStatus.ENVIADA &&
+            order.estado !== PurchaseOrderStatus.PARCIAL
+          ) {
             throw new BadRequestException(
               'Solo se puede recibir una orden que esté ENVIADA',
             );
           }
-          await this.receiveOrder(queryRunner.manager, order.id);
+          await this.receiveOrder(
+            queryRunner.manager,
+            order.id,
+            recepciones,
+            requestedStatus,
+          );
+        }
+        if (requestedStatus === PurchaseOrderStatus.DEVUELTA) {
+          await this.returnOrder(
+            queryRunner.manager,
+            order.id,
+            recepciones,
+          );
         }
         order.estado = requestedStatus;
       }
@@ -228,6 +251,8 @@ export class PurchaseOrderService {
           cantidad: detailDto.cantidad,
           costoUnitario: detailDto.costoUnitario,
           subtotal: fromCents(subtotalCents),
+          lote: detailDto.lote ?? null,
+          fechaVencimiento: detailDto.fechaVencimiento ?? null,
         }),
       );
     }
@@ -246,10 +271,18 @@ export class PurchaseOrderService {
       ],
       [PurchaseOrderStatus.ENVIADA]: [
         PurchaseOrderStatus.RECIBIDA,
+        PurchaseOrderStatus.PARCIAL,
         PurchaseOrderStatus.CANCELADA,
       ],
-      [PurchaseOrderStatus.RECIBIDA]: [],
+      [PurchaseOrderStatus.PARCIAL]: [
+        PurchaseOrderStatus.PARCIAL,
+        PurchaseOrderStatus.RECIBIDA,
+        PurchaseOrderStatus.CANCELADA,
+        PurchaseOrderStatus.DEVUELTA,
+      ],
+      [PurchaseOrderStatus.RECIBIDA]: [PurchaseOrderStatus.DEVUELTA],
       [PurchaseOrderStatus.CANCELADA]: [],
+      [PurchaseOrderStatus.DEVUELTA]: [],
     };
 
     if (!transitions[current].includes(next)) {
@@ -259,9 +292,67 @@ export class PurchaseOrderService {
     }
   }
 
+  private async returnOrder(
+    manager: EntityManager,
+    orderId: number,
+    recepciones:
+      | Array<{ codigoBarras: string; cantidad: number }>
+      | undefined,
+  ): Promise<void> {
+    const details = await manager.find(PurchaseOrderDetail, {
+      where: { orden: { id: orderId } },
+      relations: { producto: true },
+    });
+    for (const detail of details) {
+      const reception = recepciones?.find(
+        (item) => item.codigoBarras === detail.producto.codigoBarras,
+      );
+      const returned = reception?.cantidad ?? detail.cantidadRecibida;
+      if (returned <= 0 || returned > detail.cantidadRecibida) {
+        throw new BadRequestException(
+          `Devolución inválida para ${detail.producto.codigoBarras}`,
+        );
+      }
+      const product = await manager.findOne(Product, {
+        where: { codigoBarras: detail.producto.codigoBarras },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!product || product.stock < returned) {
+        throw new BadRequestException(
+          `Stock insuficiente para devolver ${detail.producto.codigoBarras}`,
+        );
+      }
+      product.stock -= returned;
+      await manager.save(product);
+
+      const lots = await manager.find(ProductLot, {
+        where: {
+          producto: { codigoBarras: detail.producto.codigoBarras },
+          activo: true,
+        },
+        order: { fechaVencimiento: 'ASC', id: 'ASC' },
+      });
+      let remaining = returned;
+      for (const lot of lots) {
+        if (remaining === 0) break;
+        const lotReturn = Math.min(lot.cantidad, remaining);
+        lot.cantidad = Math.max(0, lot.cantidad - lotReturn);
+        remaining -= lotReturn;
+        lot.activo = lot.cantidad > 0;
+        await manager.save(lot);
+      }
+      detail.cantidadRecibida -= returned;
+      await manager.save(detail);
+    }
+  }
+
   private async receiveOrder(
     manager: EntityManager,
     orderId: number,
+    recepciones:
+      | Array<{ codigoBarras: string; cantidad: number }>
+      | undefined,
+    requestedStatus: PurchaseOrderStatus,
   ): Promise<void> {
     const details = await manager.find(PurchaseOrderDetail, {
       where: { orden: { id: orderId } },
@@ -270,6 +361,26 @@ export class PurchaseOrderService {
     });
 
     for (const detail of details) {
+      const reception = recepciones?.find(
+        (item) => item.codigoBarras === detail.producto.codigoBarras,
+      );
+      const received = reception
+        ? reception.cantidad
+        : requestedStatus === PurchaseOrderStatus.RECIBIDA
+          ? detail.cantidad - (detail.cantidadRecibida ?? 0)
+          : 0;
+      if (received < 0) {
+        throw new BadRequestException(
+          `Recepción inválida para ${detail.producto.codigoBarras}`,
+        );
+      }
+      if (received > detail.cantidad - (detail.cantidadRecibida ?? 0)) {
+        throw new BadRequestException(
+          `La recepción supera lo pendiente de ${detail.producto.codigoBarras}`,
+        );
+      }
+      if (received === 0) continue;
+
       const product = await manager.findOne(Product, {
         where: { codigoBarras: detail.producto.codigoBarras },
         lock: { mode: 'pessimistic_write' },
@@ -279,14 +390,29 @@ export class PurchaseOrderService {
           `Producto ${detail.producto.codigoBarras} no encontrado`,
         );
       }
-      if (product.stock + detail.cantidad > MAX_INT) {
+      if (product.stock + received > MAX_INT) {
         throw new BadRequestException(
           `El stock de ${product.codigoBarras} supera el máximo permitido`,
         );
       }
 
-      product.stock += detail.cantidad;
+      product.stock += received;
       await manager.save(product);
+      detail.cantidadRecibida = (detail.cantidadRecibida ?? 0) + received;
+      await manager.save(detail);
+
+      if (detail.lote && detail.fechaVencimiento) {
+        await manager.save(
+          manager.create(ProductLot, {
+            producto: product,
+            lote: detail.lote,
+            fechaVencimiento: detail.fechaVencimiento,
+            cantidad: received,
+            costoUnitario: detail.costoUnitario,
+            activo: true,
+          }),
+        );
+      }
     }
   }
 }

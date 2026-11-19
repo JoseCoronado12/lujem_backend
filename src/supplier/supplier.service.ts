@@ -27,7 +27,28 @@ export class SupplierService {
   }
 
   async findAll(): Promise<Supplier[]> {
-    return await this.supplierRepository.find({ order: { nombre: 'ASC' } });
+    return await this.supplierRepository.find({
+      where: { activo: true },
+      order: { nombre: 'ASC' },
+    });
+  }
+
+  async findPaginated(page = 1, limit = 20, search?: string) {
+    const qb = this.supplierRepository
+      .createQueryBuilder('proveedor')
+      .where('proveedor.activo = :active', { active: true });
+    if (search) {
+      qb.andWhere(
+        '(proveedor.nombre LIKE :search OR proveedor.nit LIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+    const [items, total] = await qb
+      .orderBy('proveedor.nombre', 'ASC')
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+    return { items, total, page, limit, pages: Math.ceil(total / limit) };
   }
 
   async findOne(codigoProveedor: number): Promise<Supplier> {
@@ -60,11 +81,8 @@ export class SupplierService {
   }
 
   async remove(codigoProveedor: number): Promise<void> {
-    const result = await this.supplierRepository.delete({ codigoProveedor });
-    if (!result.affected) {
-      throw new NotFoundException(
-        `Proveedor ${codigoProveedor} no encontrado`,
-      );
-    }
+    const supplier = await this.findOne(codigoProveedor);
+    supplier.activo = false;
+    await this.supplierRepository.save(supplier);
   }
 }

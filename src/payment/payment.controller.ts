@@ -42,7 +42,7 @@ const ALLOWED_MIME_TYPES = new Set([
 
 @Controller('payments')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
-@Roles('ADMIN')
+@Roles('ADMIN', 'CAJERO')
 export class PaymentController {
   constructor(private readonly paymentService: PaymentService) {}
 

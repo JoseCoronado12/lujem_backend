@@ -37,6 +37,18 @@ export class Product {
   @Column({ type: 'int', default: 0 })
   stock: number;
 
+  @Column({ name: 'stock_reservado', type: 'int', default: 0 })
+  stockReservado: number;
+
+  @Column({
+    name: 'tasa_impuesto',
+    type: 'decimal',
+    precision: 5,
+    scale: 2,
+    default: 0,
+  })
+  tasaImpuesto: number;
+
   @Column({ name: 'stock_minimo', type: 'int', default: 0 })
   stockMinimo: number;
 
@@ -48,4 +60,13 @@ export class Product {
 
   @Column({ type: 'varchar', length: 100 })
   ubicacion: string;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  categoria: string | null;
+
+  @Column({ name: 'principio_activo', type: 'varchar', length: 255, nullable: true })
+  principioActivo: string | null;
+
+  @Column({ type: 'boolean', default: true })
+  activo: boolean;
 }

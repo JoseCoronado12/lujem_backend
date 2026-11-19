@@ -10,6 +10,7 @@ import { User } from './entities/user.entity';
 import { Role } from './entities/role.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { createHash, randomBytes } from 'node:crypto';
 
 @Injectable()
 export class UserService {
@@ -66,7 +67,11 @@ export class UserService {
    * No incluye las contraseñas (select: false en la entidad)
    */
   async findAll(): Promise<User[]> {
-    return await this.userRepository.find({ relations: { role: true } });
+    return await this.userRepository.find({
+      where: { activo: true },
+      relations: { role: true },
+      order: { apellidos: 'ASC', nombres: 'ASC' },
+    });
   }
 
   /**
@@ -113,6 +118,7 @@ export class UserService {
         apellidos: true,
         role: { id: true, nombre: true },
         isActive: true,
+        activo: true,
       },
       relations: { role: true },
     });
@@ -162,6 +168,81 @@ export class UserService {
    */
   async remove(id: number): Promise<void> {
     const user: User = await this.findOne(id);
-    await this.userRepository.remove(user);
+    user.activo = false;
+    user.isActive = false;
+    await this.userRepository.save(user);
+  }
+
+  async requestPasswordReset(email: string): Promise<string | null> {
+    const user = await this.userRepository.findOne({
+      where: { email, activo: true },
+      select: { id: true, email: true, resetTokenHash: true, resetTokenExpires: true, activo: true },
+    });
+    if (!user) return null;
+    const token = randomBytes(32).toString('hex');
+    user.resetTokenHash = createHash('sha256').update(token).digest('hex');
+    user.resetTokenExpires = new Date(Date.now() + 30 * 60 * 1000);
+    await this.userRepository.save(user);
+    return token;
+  }
+
+  async resetPassword(
+    email: string,
+    token: string,
+    password: string,
+  ): Promise<void> {
+    const hash = createHash('sha256').update(token).digest('hex');
+    const user = await this.userRepository.findOne({
+      where: { email, activo: true },
+      select: {
+        id: true,
+        email: true,
+        password: true,
+        resetTokenHash: true,
+        resetTokenExpires: true,
+        activo: true,
+      },
+    });
+    if (
+      !user ||
+      user.resetTokenHash !== hash ||
+      !user.resetTokenExpires ||
+      user.resetTokenExpires.getTime() < Date.now()
+    ) {
+      throw new ConflictException('Token de recuperación inválido o expirado');
+    }
+    user.password = await bcrypt.hash(password, this.saltRounds);
+    user.resetTokenHash = null;
+    user.resetTokenExpires = null;
+    await this.userRepository.save(user);
+  }
+
+  async issueRefreshToken(user: User): Promise<string> {
+    const token = randomBytes(48).toString('hex');
+    user.refreshTokenHash = createHash('sha256').update(token).digest('hex');
+    await this.userRepository.save(user);
+    return token;
+  }
+
+  async refreshStaff(refreshToken: string): Promise<User> {
+    const hash = createHash('sha256').update(refreshToken).digest('hex');
+    const user = await this.userRepository.findOne({
+      where: { refreshTokenHash: hash, activo: true },
+      relations: { role: true },
+      select: {
+        id: true,
+        email: true,
+        nombres: true,
+        apellidos: true,
+        isActive: true,
+        activo: true,
+        refreshTokenHash: true,
+        role: { id: true, nombre: true },
+      },
+    });
+    if (!user || !user.isActive) {
+      throw new NotFoundException('Refresh token inválido');
+    }
+    return user;
   }
 }

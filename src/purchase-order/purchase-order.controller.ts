@@ -21,7 +21,7 @@ import { PurchaseOrderService } from './purchase-order.service';
 
 @Controller('purchase-orders')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
-@Roles('ADMIN')
+@Roles('ADMIN', 'BODEGA')
 export class PurchaseOrderController {
   constructor(private readonly purchaseOrderService: PurchaseOrderService) {}
 

@@ -25,6 +25,7 @@ export class CustomerAuthService {
       dto.correo,
     );
     if (
+      !customer?.activo ||
       !customer?.contrasenaHash ||
       !(await bcrypt.compare(dto.contrasena, customer.contrasenaHash))
     ) {
@@ -43,6 +44,8 @@ export class CustomerAuthService {
       kind: 'customer',
     };
     const token = await this.jwtService.signAsync(payload);
+    const refreshToken =
+      await this.customerService.issueRefreshToken(customer);
 
     return {
       customer: {
@@ -52,6 +55,30 @@ export class CustomerAuthService {
         apellidos: customer.apellidos,
       },
       token,
+      refreshToken,
     };
+  }
+
+  async requestPasswordReset(correo: string): Promise<{ message: string }> {
+    await this.customerService.requestPasswordReset(correo);
+    return {
+      message:
+        'Si el correo existe, se enviará un enlace de recuperación.',
+    };
+  }
+
+  async resetPassword(
+    correo: string,
+    token: string,
+    password: string,
+  ): Promise<{ message: string }> {
+    await this.customerService.resetPassword(correo, token, password);
+    return { message: 'Contraseña actualizada correctamente.' };
+  }
+
+  async refresh(refreshToken: string): Promise<CustomerAuthResponse> {
+    const customer =
+      await this.customerService.refreshCustomer(refreshToken);
+    return await this.buildResponse(customer);
   }
 }

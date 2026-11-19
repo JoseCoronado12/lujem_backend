@@ -13,6 +13,11 @@ import { Customer } from './entities/customer.entity';
 import { CustomerAuthService } from './customer-auth.service';
 import { CustomerLoginDto } from './dto/customer-login.dto';
 import { CustomerRegistrationDto } from './dto/customer-registration.dto';
+import {
+  RefreshTokenDto,
+  RequestPasswordResetDto,
+  ResetPasswordDto,
+} from '../auth/dto/account-recovery.dto';
 
 @Controller('customer-auth')
 export class CustomerAuthController {
@@ -28,6 +33,25 @@ export class CustomerAuthController {
   @Post('login')
   login(@Body() dto: CustomerLoginDto): Promise<CustomerAuthResponse> {
     return this.customerAuthService.login(dto);
+  }
+
+  @Post('password-reset/request')
+  requestPasswordReset(@Body() dto: RequestPasswordResetDto) {
+    return this.customerAuthService.requestPasswordReset(dto.email);
+  }
+
+  @Post('password-reset')
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.customerAuthService.resetPassword(
+      dto.email,
+      dto.token,
+      dto.password,
+    );
+  }
+
+  @Post('refresh')
+  refresh(@Body() dto: RefreshTokenDto) {
+    return this.customerAuthService.refresh(dto.refreshToken);
   }
 
   @Get('me')

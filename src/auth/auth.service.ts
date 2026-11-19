@@ -7,6 +7,7 @@ import { LoginDto } from '../user/dto/login.dto';
 import { RegisterDto } from '../user/dto/register.dto';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
 import { AuthResponse } from './interfaces/auth-response.interface';
+import { ResetPasswordDto } from './dto/account-recovery.dto';
 
 @Injectable()
 export class AuthService {
@@ -106,6 +107,7 @@ export class AuthService {
    */
   private async buildAuthResponse(user: User): Promise<AuthResponse> {
     const token: string = await this.generateToken(user);
+    const refreshToken = await this.userService.issueRefreshToken(user);
 
     return {
       user: {
@@ -116,6 +118,29 @@ export class AuthService {
         role: user.role.nombre,
       },
       token,
+      refreshToken,
     };
+  }
+
+  async requestPasswordReset(email: string): Promise<{ message: string }> {
+    await this.userService.requestPasswordReset(email);
+    return {
+      message:
+        'Si el correo existe, se enviará un enlace de recuperación.',
+    };
+  }
+
+  async resetPassword(dto: ResetPasswordDto): Promise<{ message: string }> {
+    await this.userService.resetPassword(
+      dto.email,
+      dto.token,
+      dto.password,
+    );
+    return { message: 'Contraseña actualizada correctamente.' };
+  }
+
+  async refresh(refreshToken: string): Promise<AuthResponse> {
+    const user = await this.userService.refreshStaff(refreshToken);
+    return await this.buildAuthResponse(user);
   }
 }

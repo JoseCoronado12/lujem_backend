@@ -2,5 +2,7 @@ export enum PurchaseOrderStatus {
   BORRADOR = 'BORRADOR',
   ENVIADA = 'ENVIADA',
   RECIBIDA = 'RECIBIDA',
+  PARCIAL = 'PARCIAL',
   CANCELADA = 'CANCELADA',
+  DEVUELTA = 'DEVUELTA',
 }

@@ -23,4 +23,7 @@ export class Supplier {
 
   @Column({ name: 'fecha_contrato', type: 'date' })
   fechaContrato: string;
+
+  @Column({ type: 'boolean', default: true })
+  activo: boolean;
 }

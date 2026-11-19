@@ -3,10 +3,12 @@ import {
   Get,
   Param,
   UseGuards,
+  Query,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Product } from './entities/product.entity';
 import { ProductService } from './product.service';
+import { PublicCatalogQueryDto } from './dto/public-catalog-query.dto';
 
 @Controller('customer/products')
 @UseGuards(AuthGuard('customer-jwt'))
@@ -14,8 +16,8 @@ export class CustomerProductController {
   constructor(private readonly productService: ProductService) {}
 
   @Get()
-  findAll(): Promise<Product[]> {
-    return this.productService.findAll();
+  findAll(@Query() query: PublicCatalogQueryDto) {
+    return this.productService.findPublicCatalog(query);
   }
 
   @Get(':codigoBarras')

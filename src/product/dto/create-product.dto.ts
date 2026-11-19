@@ -4,6 +4,7 @@ import {
   IsInt,
   IsNotEmpty,
   IsNumber,
+  IsOptional,
   IsString,
   Max,
   MaxLength,
@@ -64,4 +65,20 @@ export class CreateProductDto {
   @IsNotEmpty()
   @MaxLength(100)
   ubicacion: string;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  tasaImpuesto?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  categoria?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  principioActivo?: string;
 }
