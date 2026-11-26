@@ -73,9 +73,8 @@ Si el esquema difiere, se detiene para que se revise antes de migrar.
 
 La migración de roles crea `USER` y `ADMIN`, separa nombres y apellidos y asocia
 cada usuario a un rol. Por seguridad, se detiene si ya existen usuarios: sus
-nombres requieren un mapeo confirmado antes de transformarlos. El registro asigna
-`USER` automáticamente; las rutas `/users` son exclusivas de `ADMIN`. La PK
-numérica se conserva temporalmente; la conversión a identificación queda pendiente.
+nombres requieren un mapeo confirmado antes de transformarlos. El registro asigna `USER` automáticamente; las rutas `/users` son exclusivas de
+`ADMIN`, con roles operativos `CAJERO`, `REGENTE` y `BODEGA`.
 Para provisionar el primer administrador, registra su cuenta y asígnale el rol
 desde una sesión administrativa de MySQL:
 
@@ -108,8 +107,8 @@ identificación del modelo ER.
 
 ## Clientes y ventas
 
-La administración de `/customers` y `/sales` requiere JWT con rol `ADMIN`. Los
-clientes admiten los tipos de documento `CC`, `CE`, `TI`, `PASAPORTE`, `NIT` y
+La administración de `/customers` y `/sales` requiere JWT con un rol autorizado.
+Los clientes admiten los tipos de documento `CC`, `CE`, `TI`, `PASAPORTE`, `NIT` y
 `OTRO`; la contraseña es opcional para clientes presenciales.
 
 El flujo en línea de clientes usa JWT independiente:
@@ -117,6 +116,9 @@ El flujo en línea de clientes usa JWT independiente:
 - `POST /customer-auth/register` crea una cuenta de cliente con contraseña
   obligatoria de al menos 8 caracteres; `POST /customer-auth/login` inicia
   sesión y `GET /customer-auth/me` devuelve el perfil autenticado.
+- El portal permite editar el perfil con `PATCH /customer-auth/me`, solicitar
+  verificación de correo con `POST /customer-auth/email-verification/request`
+  y verificar el token con `POST /customer-auth/email-verification`.
 - `GET /customer/products` y `GET /customer/products/:codigoBarras` muestran el
   catálogo a clientes autenticados.
 - `POST /customer/sales` crea una venta `EN_LINEA` para el cliente autenticado.
@@ -138,7 +140,7 @@ Los tokens de cliente no son válidos en rutas de administración.
 
 ## Pagos y comprobantes
 
-Las rutas `/payments` requieren JWT de `ADMIN`. La migración crea `EFECTIVO` y
+Las rutas `/payments` requieren JWT de `ADMIN` o `CAJERO`. La migración crea `EFECTIVO` y
 `TRANSFERENCIA` como métodos iniciales. Los pagos parciales están permitidos;
 efectivo se aprueba al registrarlo y transferencia necesita comprobante antes de
 pasar a revisión. Solo un administrador aprueba/rechaza transferencias; el
@@ -148,11 +150,10 @@ alcanzar el total de la venta con pagos aprobados, en la misma transacción.
 Configura localmente, sin subir los valores al repositorio:
 `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_UPLOAD_PRESET`,
 `CLOUDINARY_API_KEY` y `CLOUDINARY_API_SECRET`. El preset debe ser unsigned y
-estar configurado para la carpeta `lujem`. Los comprobantes se guardan como
-recursos públicos; cualquier persona con la URL puede acceder a ellos y los
-enlaces no expiran. El endpoint
-`GET /payments/:id/receipts/:receiptId/url` devuelve la URL pública y
-`expiresInSeconds: null`. Se aceptan JPEG, PNG, WEBP y PDF de hasta 5 MB; el
+estar configurado para la carpeta `lujem`. `CLOUDINARY_SIGNED_URL_TTL_SECONDS`
+define la vigencia de los enlaces temporales (900 segundos por defecto). El
+endpoint `GET /payments/:id/receipts/:receiptId/url` devuelve una URL firmada y
+el tiempo de expiración. Se aceptan JPEG, PNG, WEBP y PDF de hasta 5 MB; el
 servidor valida también la firma binaria del archivo y guarda su hash SHA-256.
 Los archivos se conservan al rechazar un pago para mantener el historial.
 Los pagos iniciados por clientes en línea no tienen usuario del establecimiento
@@ -167,9 +168,10 @@ la misma transacción que el descuento del inventario. La factura es única por
 venta y su detalle se consulta desde los detalles de venta asociados. Las rutas
 `/invoices` permiten listar facturas y consultarlas por ID (`GET /invoices/:id`)
 o por venta (`GET /invoices/sales/:saleId`); no se permite emitirlas manualmente
-ni antes de que la venta esté pagada. La tasa de impuestos no está definida en
-el modelo, por lo que `impuestos` se registra en cero y el total coincide con
-el total pagado de la venta. La nueva migración también genera facturas para las
+ni antes de que la venta esté pagada. Los productos pueden configurar `tasaImpuesto` y la factura calcula los impuestos
+desde los detalles de la venta. El envío a un proveedor externo de facturación
+electrónica se realiza mediante `ELECTRONIC_INVOICE_ENDPOINT` y
+`ELECTRONIC_INVOICE_API_KEY`. La nueva migración también genera facturas para las
 ventas históricas `PAGADA` o `ENTREGADA`.
 
 Las rutas `/product-reminders` permiten crear, consultar, actualizar y eliminar

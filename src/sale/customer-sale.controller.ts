@@ -7,6 +7,7 @@ import {
   Post,
   Req,
   UseGuards,
+  Query,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
@@ -15,6 +16,7 @@ import { CreateOnlineSaleDto } from './dto/create-online-sale.dto';
 import { Sale } from './entities/sale.entity';
 import { SaleService } from './sale.service';
 import { Invoice } from '../invoice/entities/invoice.entity';
+import { PaginationDto } from '../common/dto/pagination.dto';
 
 @Controller('customer/sales')
 @UseGuards(AuthGuard('customer-jwt'))
@@ -35,9 +37,12 @@ export class CustomerSaleController {
   @Get()
   findAll(
     @Req() request: Request & { user: Customer },
-  ): Promise<Sale[]> {
+    @Query() query: PaginationDto,
+  ) {
     return this.saleService.findAllForCustomer(
       request.user.identificacion,
+      query.page,
+      query.limit,
     );
   }
 

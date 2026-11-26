@@ -7,6 +7,7 @@ import { CustomerJwtPayload } from './interfaces/customer-jwt-payload.interface'
 import { CustomerService } from './customer.service';
 import { CustomerLoginDto } from './dto/customer-login.dto';
 import { CustomerRegistrationDto } from './dto/customer-registration.dto';
+import { UpdateCustomerDto } from './dto/update-customer.dto';
 
 @Injectable()
 export class CustomerAuthService {
@@ -53,6 +54,7 @@ export class CustomerAuthService {
         correo: customer.correo,
         nombres: customer.nombres,
         apellidos: customer.apellidos,
+        emailVerificado: customer.emailVerificado,
       },
       token,
       refreshToken,
@@ -80,5 +82,25 @@ export class CustomerAuthService {
     const customer =
       await this.customerService.refreshCustomer(refreshToken);
     return await this.buildResponse(customer);
+  }
+
+  async requestEmailVerification(correo: string): Promise<{ message: string }> {
+    await this.customerService.requestEmailVerification(correo);
+    return {
+      message:
+        'Si el correo existe y no está verificado, se enviará un enlace de verificación.',
+    };
+  }
+
+  async verifyEmail(correo: string, token: string): Promise<{ message: string }> {
+    await this.customerService.verifyEmail(correo, token);
+    return { message: 'Correo verificado correctamente.' };
+  }
+
+  async updateProfile(
+    identificacion: string,
+    dto: UpdateCustomerDto,
+  ): Promise<Customer> {
+    return await this.customerService.update(identificacion, dto);
   }
 }

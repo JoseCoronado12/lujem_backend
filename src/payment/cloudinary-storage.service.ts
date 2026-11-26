@@ -93,18 +93,33 @@ export class CloudinaryStorageService {
     };
   }
 
-  getPublicDownloadUrl(publicId: string, mimeType: string): string {
+  getSignedDownloadUrl(publicId: string, mimeType: string): {
+    url: string;
+    expiresInSeconds: number;
+  } {
     const format = MIME_FORMATS[mimeType];
     if (!format) {
       throw new UnsupportedMediaTypeException('Formato de comprobante no válido');
     }
 
-    return this.getClient().url(publicId, {
-      resource_type: mimeType === 'application/pdf' ? 'raw' : 'image',
-      type: 'upload',
-      secure: true,
-      ...(mimeType === 'application/pdf' ? {} : { format }),
-    });
+    const expiresInSeconds = Number(
+      this.configService.get<string>('CLOUDINARY_SIGNED_URL_TTL_SECONDS', '900'),
+    );
+    const ttl = Number.isInteger(expiresInSeconds) && expiresInSeconds > 0
+      ? expiresInSeconds
+      : 900;
+
+    return {
+      url: this.getClient().url(publicId, {
+        resource_type: mimeType === 'application/pdf' ? 'raw' : 'image',
+        type: 'upload',
+        secure: true,
+        sign_url: true,
+        expires_at: Math.floor(Date.now() / 1000) + ttl,
+        ...(mimeType === 'application/pdf' ? {} : { format }),
+      }),
+      expiresInSeconds: ttl,
+    };
   }
 
   async delete(publicId: string, mimeType: string): Promise<void> {

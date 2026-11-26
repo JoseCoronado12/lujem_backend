@@ -8,6 +8,7 @@ import {
   Post,
   Req,
   UseGuards,
+  Query,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
@@ -18,6 +19,8 @@ import { CreatePurchaseOrderDto } from './dto/create-purchase-order.dto';
 import { UpdatePurchaseOrderDto } from './dto/update-purchase-order.dto';
 import { PurchaseOrder } from './entities/purchase-order.entity';
 import { PurchaseOrderService } from './purchase-order.service';
+import { PaginationDto } from '../common/dto/pagination.dto';
+import { RegisterPurchasePaymentDto } from './dto/register-purchase-payment.dto';
 
 @Controller('purchase-orders')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -34,8 +37,8 @@ export class PurchaseOrderController {
   }
 
   @Get()
-  findAll(): Promise<PurchaseOrder[]> {
-    return this.purchaseOrderService.findAll();
+  findAll(@Query() query: PaginationDto) {
+    return this.purchaseOrderService.findAll(query.page, query.limit, query.search);
   }
 
   @Get(':id')
@@ -49,5 +52,13 @@ export class PurchaseOrderController {
     @Body() updateDto: UpdatePurchaseOrderDto,
   ): Promise<PurchaseOrder> {
     return this.purchaseOrderService.update(id, updateDto);
+  }
+
+  @Patch(':id/payment')
+  registerPayment(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: RegisterPurchasePaymentDto,
+  ): Promise<PurchaseOrder> {
+    return this.purchaseOrderService.registerPayment(id, dto.monto);
   }
 }

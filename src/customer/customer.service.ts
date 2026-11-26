@@ -97,6 +97,7 @@ export class CustomerService {
         direccion: true,
         contrasenaHash: true,
         activo: true,
+        emailVerificado: true,
       },
     });
   }
@@ -115,6 +116,14 @@ export class CustomerService {
     }
 
     const { contrasena, ...customerChanges } = updateDto;
+    if (
+      updateDto.correo &&
+      updateDto.correo !== customer.correo
+    ) {
+      customer.emailVerificado = false;
+      customer.verificationTokenHash = null;
+      customer.verificationTokenExpires = null;
+    }
     this.customerRepository.merge(customer, customerChanges);
     if (contrasena) {
       customer.contrasenaHash = await bcrypt.hash(
@@ -166,6 +175,45 @@ export class CustomerService {
     customer.contrasenaHash = await bcrypt.hash(password, this.saltRounds);
     customer.resetTokenHash = null;
     customer.resetTokenExpires = null;
+    await this.customerRepository.save(customer);
+  }
+
+  async requestEmailVerification(correo: string): Promise<string | null> {
+    const customer = await this.customerRepository.findOne({
+      where: { correo, activo: true },
+    });
+    if (!customer || customer.emailVerificado) return null;
+    const token = randomBytes(32).toString('hex');
+    customer.verificationTokenHash = createHash('sha256').update(token).digest('hex');
+    customer.verificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await this.customerRepository.save(customer);
+    return token;
+  }
+
+  async verifyEmail(correo: string, token: string): Promise<void> {
+    const hash = createHash('sha256').update(token).digest('hex');
+    const customer = await this.customerRepository.findOne({
+      where: { correo, activo: true },
+      select: {
+        identificacion: true,
+        correo: true,
+        verificationTokenHash: true,
+        verificationTokenExpires: true,
+        emailVerificado: true,
+        activo: true,
+      },
+    });
+    if (
+      !customer ||
+      customer.verificationTokenHash !== hash ||
+      !customer.verificationTokenExpires ||
+      customer.verificationTokenExpires.getTime() < Date.now()
+    ) {
+      throw new ConflictException('Token de verificación inválido o expirado');
+    }
+    customer.emailVerificado = true;
+    customer.verificationTokenHash = null;
+    customer.verificationTokenExpires = null;
     await this.customerRepository.save(customer);
   }
 

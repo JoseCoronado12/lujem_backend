@@ -49,6 +49,16 @@ export class Product {
   })
   tasaImpuesto: number;
 
+  @Column({
+    name: 'costo_promedio',
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    default: 0,
+    transformer: decimalTransformer,
+  })
+  costoPromedio: number;
+
   @Column({ name: 'stock_minimo', type: 'int', default: 0 })
   stockMinimo: number;
 

@@ -134,7 +134,7 @@ export class CustomerPaymentController {
     @Param('paymentId', ParseIntPipe) paymentId: number,
     @Param('receiptId', ParseIntPipe) receiptId: number,
     @Req() request: Request & { user: Customer },
-  ): Promise<{ url: string; expiresInSeconds: null }> {
+  ): Promise<{ url: string; expiresInSeconds: number }> {
     await this.paymentService.findForCustomer(
       saleId,
       paymentId,

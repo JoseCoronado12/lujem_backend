@@ -66,12 +66,24 @@ export class UserService {
    * Obtener todos los usuarios
    * No incluye las contraseñas (select: false en la entidad)
    */
-  async findAll(): Promise<User[]> {
-    return await this.userRepository.find({
-      where: { activo: true },
-      relations: { role: true },
-      order: { apellidos: 'ASC', nombres: 'ASC' },
-    });
+  async findAll(page = 1, limit = 20, search?: string): Promise<{ items: User[]; total: number; page: number; limit: number; pages: number }> {
+    const qb = this.userRepository
+      .createQueryBuilder('usuario')
+      .leftJoinAndSelect('usuario.role', 'rol')
+      .where('usuario.activo = :active', { active: true });
+    if (search) {
+      qb.andWhere(
+        '(usuario.nombres LIKE :search OR usuario.apellidos LIKE :search OR usuario.email LIKE :search OR usuario.identificacion LIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+    const [items, total] = await qb
+      .orderBy('usuario.apellidos', 'ASC')
+      .addOrderBy('usuario.nombres', 'ASC')
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+    return { items, total, page, limit, pages: Math.ceil(total / limit) };
   }
 
   /**

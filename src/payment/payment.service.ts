@@ -512,7 +512,7 @@ export class PaymentService {
     paymentId: number,
     receiptId: number,
     customerId?: string,
-  ): Promise<{ url: string; expiresInSeconds: null }> {
+  ): Promise<{ url: string; expiresInSeconds: number }> {
     const receipt = await this.receiptRepository.findOne({
       where: { id: receiptId, pago: { id: paymentId } },
       relations: { pago: { venta: { cliente: true } } },
@@ -531,13 +531,10 @@ export class PaymentService {
         `Comprobante ${receiptId} no pertenece al pago ${paymentId}`,
       );
     }
-    return {
-      url: this.cloudinaryStorage.getPublicDownloadUrl(
-        receipt.cloudinaryPublicId,
-        receipt.tipoMime,
-      ),
-      expiresInSeconds: null,
-    };
+    return this.cloudinaryStorage.getSignedDownloadUrl(
+      receipt.cloudinaryPublicId,
+      receipt.tipoMime,
+    );
   }
 
   async findOne(id: number): Promise<Payment> {

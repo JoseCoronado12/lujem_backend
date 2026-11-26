@@ -68,6 +68,8 @@ export class PurchaseOrderService {
         observaciones: createDto.observaciones ?? null,
         estado: PurchaseOrderStatus.BORRADOR,
         total,
+        montoPagado: 0,
+        saldoPendiente: total,
         detalles: details,
       });
 
@@ -84,15 +86,45 @@ export class PurchaseOrderService {
     }
   }
 
-  async findAll(): Promise<PurchaseOrder[]> {
-    return await this.purchaseOrderRepository.find({
-      relations: {
-        proveedor: true,
-        usuario: true,
-        detalles: { producto: true },
-      },
-      order: { fecha: 'DESC', id: 'DESC' },
-    });
+  async findAll(page = 1, limit = 20, search?: string): Promise<{ items: PurchaseOrder[]; total: number; page: number; limit: number; pages: number }> {
+    const qb = this.purchaseOrderRepository
+      .createQueryBuilder('orden')
+      .leftJoinAndSelect('orden.proveedor', 'proveedor')
+      .leftJoinAndSelect('orden.usuario', 'usuario')
+      .leftJoinAndSelect('orden.detalles', 'detalle')
+      .leftJoinAndSelect('detalle.producto', 'producto');
+    if (search) {
+      qb.andWhere(
+        '(CAST(orden.id AS CHAR) LIKE :search OR proveedor.nombre LIKE :search OR proveedor.nit LIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+    const [items, total] = await qb
+      .orderBy('orden.fecha', 'DESC')
+      .addOrderBy('orden.id', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+    return { items, total, page, limit, pages: Math.ceil(total / limit) };
+  }
+
+  async registerPayment(id: number, monto: number): Promise<PurchaseOrder> {
+    const order = await this.purchaseOrderRepository.findOneBy({ id });
+    if (!order) {
+      throw new NotFoundException(`Orden de compra ${id} no encontrada`);
+    }
+    const paymentCents = toCents(monto);
+    const paidCents = toCents(order.montoPagado ?? 0);
+    const totalCents = toCents(order.total);
+    if (paymentCents + paidCents > totalCents) {
+      throw new BadRequestException(
+        'El pago supera el saldo pendiente de la orden',
+      );
+    }
+    order.montoPagado = fromCents(paidCents + paymentCents);
+    order.saldoPendiente = fromCents(totalCents - paidCents - paymentCents);
+    await this.purchaseOrderRepository.save(order);
+    return await this.findOne(id);
   }
 
   async findOne(id: number): Promise<PurchaseOrder> {
@@ -397,6 +429,18 @@ export class PurchaseOrderService {
       }
 
       product.stock += received;
+      const existingCents = toCents(Number(product.costoPromedio ?? 0));
+      const incomingCents = toCents(detail.costoUnitario) * received;
+      const nextStock = product.stock;
+      const weightedCents = nextStock > 0
+        ? Math.round(
+            (
+              existingCents * (nextStock - received) +
+              incomingCents
+            ) / nextStock,
+          )
+        : incomingCents;
+      product.costoPromedio = fromCents(weightedCents);
       await manager.save(product);
       detail.cantidadRecibida = (detail.cantidadRecibida ?? 0) + received;
       await manager.save(detail);

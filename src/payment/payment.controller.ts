@@ -134,7 +134,7 @@ export class PaymentController {
   getReceiptDownloadUrl(
     @Param('id', ParseIntPipe) id: number,
     @Param('receiptId', ParseIntPipe) receiptId: number,
-  ): Promise<{ url: string; expiresInSeconds: null }> {
+  ): Promise<{ url: string; expiresInSeconds: number }> {
     return this.paymentService.getReceiptDownloadUrl(id, receiptId);
   }
 

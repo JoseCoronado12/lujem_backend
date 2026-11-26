@@ -68,6 +68,26 @@ export class PurchaseOrder {
   })
   total: number;
 
+  @Column({
+    name: 'monto_pagado',
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    default: 0,
+    transformer: decimalTransformer,
+  })
+  montoPagado: number;
+
+  @Column({
+    name: 'saldo_pendiente',
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    default: 0,
+    transformer: decimalTransformer,
+  })
+  saldoPendiente: number;
+
   @Column({ type: 'varchar', length: 255, nullable: true, default: null })
   observaciones: string | null;
 

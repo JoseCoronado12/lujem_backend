@@ -4,6 +4,7 @@ export interface CustomerAuthResponse {
     correo: string;
     nombres: string;
     apellidos: string;
+    emailVerificado?: boolean;
   };
   token: string;
   refreshToken?: string;

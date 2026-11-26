@@ -4,6 +4,7 @@ import {
   Param,
   ParseIntPipe,
   UseGuards,
+  Query,
   Post,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
@@ -12,6 +13,7 @@ import { RolesGuard } from '../user/guards/roles.guard';
 import { Invoice } from './entities/invoice.entity';
 import { InvoiceService } from './invoice.service';
 import { ElectronicInvoiceService } from './electronic-invoice.service';
+import { PaginationDto } from '../common/dto/pagination.dto';
 
 @Controller('invoices')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -23,8 +25,8 @@ export class InvoiceController {
   ) {}
 
   @Get()
-  findAll(): Promise<Invoice[]> {
-    return this.invoiceService.findAll();
+  findAll(@Query() query: PaginationDto) {
+    return this.invoiceService.findAll(query.page, query.limit, query.search);
   }
 
   @Get('sales/:saleId')

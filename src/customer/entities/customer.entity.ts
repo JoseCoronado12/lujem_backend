@@ -59,6 +59,14 @@ export class Customer {
   @Column({ name: 'reset_token_expires', type: 'datetime', nullable: true })
   resetTokenExpires: Date | null;
 
+  @Exclude()
+  @Column({ name: 'verification_token_hash', type: 'varchar', length: 64, nullable: true, select: false })
+  verificationTokenHash: string | null;
+
+  @Exclude()
+  @Column({ name: 'verification_token_expires', type: 'datetime', nullable: true, select: false })
+  verificationTokenExpires: Date | null;
+
   @Column({ name: 'email_verificado', type: 'boolean', default: false })
   emailVerificado: boolean;
 }

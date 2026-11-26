@@ -55,11 +55,14 @@ export class ProductReminderService {
     );
   }
 
-  async findAll(): Promise<ProductReminder[]> {
-    return await this.reminderRepository.find({
+  async findAll(page = 1, limit = 20): Promise<{ items: ProductReminder[]; total: number; page: number; limit: number; pages: number }> {
+    const [items, total] = await this.reminderRepository.findAndCount({
       relations: { cliente: true, producto: true },
       order: { fechaRecordatorio: 'ASC', id: 'ASC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+    return { items, total, page, limit, pages: Math.ceil(total / limit) };
   }
 
   async findForCustomer(customerId: string): Promise<ProductReminder[]> {

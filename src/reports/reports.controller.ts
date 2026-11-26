@@ -5,6 +5,7 @@ import { Roles } from '../user/decorators/roles.decorator';
 import { RolesGuard } from '../user/guards/roles.guard';
 import { ReportQueryDto } from './dto/report-query.dto';
 import { ReportsService } from './reports.service';
+import PDFDocument = require('pdfkit');
 
 @Controller('reports')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -41,5 +42,32 @@ export class ReportsController {
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename="ventas.csv"');
     res.send(['id,fecha,estado,total', ...rows].join('\n'));
+  }
+
+  @Get('sales/export/pdf')
+  async exportSalesPdf(@Query() query: ReportQueryDto, @Res() res: Response) {
+    const report = await this.reportsService.sales(query);
+    const chunks: Buffer[] = [];
+    const document = new PDFDocument({ margin: 40 });
+    document.on('data', (chunk: Buffer) => chunks.push(chunk));
+    const pdf = new Promise<Buffer>((resolve, reject) => {
+      document.on('end', () => resolve(Buffer.concat(chunks)));
+      document.on('error', reject);
+    });
+
+    document.fontSize(16).text('Reporte de ventas LUJEM');
+    document.moveDown();
+    document.fontSize(10).text(`Cantidad: ${report.count} - Total: ${report.total.toFixed(2)}`);
+    document.moveDown();
+    for (const sale of report.sales) {
+      document.text(
+        `#${sale.id} | ${sale.fechaHora} | ${sale.estado} | ${Number(sale.total).toFixed(2)}`,
+      );
+    }
+    document.end();
+    const buffer = await pdf;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename="ventas.pdf"');
+    res.send(buffer);
   }
 }

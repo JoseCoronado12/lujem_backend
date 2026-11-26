@@ -10,6 +10,7 @@ import {
   Patch,
   Post,
   UseGuards,
+  Query,
   Req,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
@@ -21,6 +22,7 @@ import { ProductReminder } from './entities/product-reminder.entity';
 import { ProductReminderService } from './product-reminder.service';
 import type { Request } from 'express';
 import type { Customer } from '../customer/entities/customer.entity';
+import { PaginationDto } from '../common/dto/pagination.dto';
 
 @Controller('product-reminders')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -41,8 +43,8 @@ export class ProductReminderController {
   }
 
   @Get()
-  findAll(): Promise<ProductReminder[]> {
-    return this.reminderService.findAll();
+  findAll(@Query() query: PaginationDto) {
+    return this.reminderService.findAll(query.page, query.limit);
   }
 
   @Get(':id')

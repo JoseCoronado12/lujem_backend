@@ -8,6 +8,7 @@ import {
   Req,
   Patch,
   UseGuards,
+  Query,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
@@ -19,6 +20,7 @@ import { Sale } from './entities/sale.entity';
 import { SaleService } from './sale.service';
 import { DeliverSaleDto, ReturnSaleDto, VoidSaleDto } from './dto/sale-state.dto';
 import { PrescriptionDto } from './dto/prescription.dto';
+import { PaginationDto } from '../common/dto/pagination.dto';
 
 @Controller('sales')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -35,8 +37,8 @@ export class SaleController {
   }
 
   @Get()
-  findAll(): Promise<Sale[]> {
-    return this.saleService.findAll();
+  findAll(@Query() query: PaginationDto) {
+    return this.saleService.findAll(query.page, query.limit, query.search);
   }
 
   @Get(':id')

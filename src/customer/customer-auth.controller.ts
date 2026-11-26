@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -17,7 +18,9 @@ import {
   RefreshTokenDto,
   RequestPasswordResetDto,
   ResetPasswordDto,
+  VerifyEmailDto,
 } from '../auth/dto/account-recovery.dto';
+import { UpdateCustomerDto } from './dto/update-customer.dto';
 
 @Controller('customer-auth')
 export class CustomerAuthController {
@@ -59,7 +62,41 @@ export class CustomerAuthController {
   getProfile(
     @Req() request: Request & { user: Customer },
   ): CustomerAuthResponse['customer'] {
-    const { identificacion, correo, nombres, apellidos } = request.user;
-    return { identificacion, correo, nombres, apellidos };
+    const {
+      identificacion,
+      correo,
+      nombres,
+      apellidos,
+      emailVerificado,
+    } = request.user;
+    return {
+      identificacion,
+      correo,
+      nombres,
+      apellidos,
+      emailVerificado,
+    } as CustomerAuthResponse['customer'];
+  }
+
+  @Patch('me')
+  @UseGuards(AuthGuard('customer-jwt'))
+  updateProfile(
+    @Req() request: Request & { user: Customer },
+    @Body() dto: UpdateCustomerDto,
+  ) {
+    return this.customerAuthService.updateProfile(
+      request.user.identificacion,
+      dto,
+    );
+  }
+
+  @Post('email-verification/request')
+  requestEmailVerification(@Body() dto: RequestPasswordResetDto) {
+    return this.customerAuthService.requestEmailVerification(dto.email);
+  }
+
+  @Post('email-verification')
+  verifyEmail(@Body() dto: VerifyEmailDto) {
+    return this.customerAuthService.verifyEmail(dto.email, dto.token);
   }
 }

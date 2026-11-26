@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { Customer } from '../customer/entities/customer.entity';
 import { Invoice } from '../invoice/entities/invoice.entity';
 import { Product } from '../product/entities/product.entity';
@@ -19,6 +19,7 @@ import { DeliverSaleDto, ReturnSaleDto, VoidSaleDto } from './dto/sale-state.dto
 import { ProductLot } from '../product/entities/product-lot.entity';
 import { Prescription } from './entities/prescription.entity';
 import { PrescriptionDto } from './dto/prescription.dto';
+import { Cron, CronExpression } from '@nestjs/schedule';
 
 const MAX_DECIMAL_CENTS = 9_999_999_999;
 const MAX_INT = 2_147_483_647;
@@ -193,15 +194,98 @@ export class SaleService {
     );
   }
 
-  async findAll(): Promise<Sale[]> {
-    return await this.saleRepository.find({
-      relations: {
-        cliente: true,
-        usuario: true,
-        detalles: { producto: true },
+  @Cron(CronExpression.EVERY_MINUTE)
+  async releaseExpiredReservations(): Promise<number> {
+    const sales = await this.saleRepository.find({
+      where: {
+        canal: SaleChannel.EN_LINEA,
+        estado: In([
+          SaleStatus.PENDIENTE_PAGO,
+          SaleStatus.PAGO_EN_REVISION,
+        ]),
       },
-      order: { fechaHora: 'DESC', id: 'DESC' },
+      relations: { detalles: { producto: true } },
     });
+    let released = 0;
+    const now = new Date();
+
+    for (const sale of sales) {
+      if (!sale.fechaReserva || sale.fechaReserva.getTime() >= now.getTime()) {
+        continue;
+      }
+
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+      try {
+        const lockedSale = await queryRunner.manager.findOne(Sale, {
+          where: { id: sale.id },
+          relations: { detalles: { producto: true } },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (
+          !lockedSale?.fechaReserva ||
+          lockedSale.fechaReserva.getTime() >= now.getTime() ||
+          ![
+            SaleStatus.PENDIENTE_PAGO,
+            SaleStatus.PAGO_EN_REVISION,
+          ].includes(lockedSale.estado)
+        ) {
+          await queryRunner.commitTransaction();
+          continue;
+        }
+
+        for (const detail of lockedSale.detalles) {
+          const product = await queryRunner.manager.findOne(Product, {
+            where: { codigoBarras: detail.producto.codigoBarras },
+            lock: { mode: 'pessimistic_write' },
+          });
+          if (product) {
+            product.stockReservado = Math.max(
+              0,
+              (product.stockReservado ?? 0) - detail.cantidad,
+            );
+            await queryRunner.manager.save(product);
+          }
+        }
+        lockedSale.estado = SaleStatus.ANULADA;
+        lockedSale.motivoAnulacion = 'Reserva de stock expirada';
+        lockedSale.fechaReserva = null;
+        await queryRunner.manager.save(lockedSale);
+        await queryRunner.commitTransaction();
+        released++;
+      } catch (error) {
+        if (queryRunner.isTransactionActive) {
+          await queryRunner.rollbackTransaction();
+        }
+        throw error;
+      } finally {
+        await queryRunner.release();
+      }
+    }
+    return released;
+  }
+
+  async findAll(page = 1, limit = 20, search?: string): Promise<{ items: Sale[]; total: number; page: number; limit: number; pages: number }> {
+    const qb = this.saleRepository
+      .createQueryBuilder('venta')
+      .leftJoinAndSelect('venta.cliente', 'cliente')
+      .leftJoinAndSelect('venta.usuario', 'usuario')
+      .leftJoinAndSelect('venta.detalles', 'detalle')
+      .leftJoinAndSelect('detalle.producto', 'producto');
+    if (search) {
+      qb.andWhere(
+        '(CAST(venta.id AS CHAR) LIKE :search OR cliente.identificacion LIKE :search OR cliente.nombres LIKE :search OR cliente.apellidos LIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+    const [items, total] = await qb
+      .orderBy('venta.fechaHora', 'DESC')
+      .addOrderBy('venta.id', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+    return { items, total, page, limit, pages: Math.ceil(total / limit) };
   }
 
   async findOne(id: number): Promise<Sale> {
@@ -220,15 +304,22 @@ export class SaleService {
     return sale;
   }
 
-  async findAllForCustomer(customerId: string): Promise<Sale[]> {
-    return await this.saleRepository.find({
+  async findAllForCustomer(
+    customerId: string,
+    page = 1,
+    limit = 20,
+  ): Promise<{ items: Sale[]; total: number; page: number; limit: number; pages: number }> {
+    const [items, total] = await this.saleRepository.findAndCount({
       where: { cliente: { identificacion: customerId } },
       relations: {
         cliente: true,
         detalles: { producto: true },
       },
       order: { fechaHora: 'DESC', id: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+    return { items, total, page, limit, pages: Math.ceil(total / limit) };
   }
 
   async findOneForCustomer(id: number, customerId: string): Promise<Sale> {
